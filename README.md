@@ -5,7 +5,7 @@ Official Go SDK for [SnapAPI](https://snapapi.pics) - Lightning-fast screenshot 
 ## Installation
 
 ```bash
-go get github.com/snapapi-dev/snapapi-go
+go get github.com/Sleywill/snapapi-go
 ```
 
 ## Quick Start
@@ -17,7 +17,7 @@ import (
     "log"
     "os"
 
-    "github.com/snapapi-dev/snapapi-go"
+    "github.com/Sleywill/snapapi-go"
 )
 
 func main() {
