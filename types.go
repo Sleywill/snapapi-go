@@ -319,3 +319,103 @@ type Usage struct {
 	Remaining int    `json:"remaining"`
 	ResetAt   string `json:"resetAt"`
 }
+
+// ============ EXTRACT API ============
+
+// ExtractType represents the type of content extraction.
+type ExtractType string
+
+const (
+	ExtractTypeMarkdown   ExtractType = "markdown"
+	ExtractTypeText       ExtractType = "text"
+	ExtractTypeHTML       ExtractType = "html"
+	ExtractTypeArticle    ExtractType = "article"
+	ExtractTypeStructured ExtractType = "structured"
+	ExtractTypeLinks      ExtractType = "links"
+	ExtractTypeImages     ExtractType = "images"
+	ExtractTypeMetadata   ExtractType = "metadata"
+)
+
+// ExtractOptions represents options for content extraction.
+type ExtractOptions struct {
+	URL                string      `json:"url"`
+	Type               ExtractType `json:"type,omitempty"`
+	Selector           string      `json:"selector,omitempty"`
+	WaitFor            string      `json:"waitFor,omitempty"`
+	Timeout            int         `json:"timeout,omitempty"`
+	DarkMode           bool        `json:"darkMode,omitempty"`
+	BlockAds           bool        `json:"blockAds,omitempty"`
+	BlockCookieBanners bool        `json:"blockCookieBanners,omitempty"`
+	MaxLength          int         `json:"maxLength,omitempty"`
+	CleanOutput        bool        `json:"cleanOutput,omitempty"`
+}
+
+// ExtractResult represents the result of a content extraction.
+type ExtractResult struct {
+	Success      bool        `json:"success"`
+	Type         ExtractType `json:"type"`
+	URL          string      `json:"url"`
+	Data         interface{} `json:"data"`
+	ResponseTime int         `json:"responseTime"`
+}
+
+// ExtractArticle represents extracted article content.
+type ExtractArticle struct {
+	Title         string `json:"title"`
+	Byline        string `json:"byline,omitempty"`
+	Content       string `json:"content"`
+	TextContent   string `json:"textContent,omitempty"`
+	Excerpt       string `json:"excerpt,omitempty"`
+	SiteName      string `json:"siteName,omitempty"`
+	PublishedTime string `json:"publishedTime,omitempty"`
+	Length        int    `json:"length,omitempty"`
+	ReadingTime   int    `json:"readingTime,omitempty"`
+}
+
+// ExtractStructured represents structured extraction for LLM/RAG.
+type ExtractStructured struct {
+	URL           string `json:"url"`
+	Title         string `json:"title"`
+	Author        string `json:"author"`
+	PublishedTime string `json:"publishedTime"`
+	Description   string `json:"description"`
+	Image         string `json:"image,omitempty"`
+	WordCount     int    `json:"wordCount"`
+	Content       string `json:"content"`
+}
+
+// ExtractLink represents an extracted link.
+type ExtractLink struct {
+	Text string `json:"text"`
+	Href string `json:"href"`
+}
+
+// ExtractImage represents an extracted image.
+type ExtractImage struct {
+	Src    string `json:"src"`
+	Alt    string `json:"alt"`
+	Title  string `json:"title,omitempty"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
+// ExtractPageMetadata represents extracted page metadata.
+type ExtractPageMetadata struct {
+	Title              string `json:"title"`
+	URL                string `json:"url"`
+	Description        string `json:"description"`
+	Keywords           string `json:"keywords,omitempty"`
+	Author             string `json:"author,omitempty"`
+	PublishedTime      string `json:"publishedTime,omitempty"`
+	ModifiedTime       string `json:"modifiedTime,omitempty"`
+	OGTitle            string `json:"ogTitle,omitempty"`
+	OGDescription      string `json:"ogDescription,omitempty"`
+	OGImage            string `json:"ogImage,omitempty"`
+	OGType             string `json:"ogType,omitempty"`
+	TwitterCard        string `json:"twitterCard,omitempty"`
+	TwitterTitle       string `json:"twitterTitle,omitempty"`
+	TwitterDescription string `json:"twitterDescription,omitempty"`
+	Canonical          string `json:"canonical,omitempty"`
+	Favicon            string `json:"favicon,omitempty"`
+	Language           string `json:"language,omitempty"`
+}

@@ -301,6 +301,70 @@ func (c *Client) GetCapabilities() (*CapabilitiesResult, error) {
 	return &result, nil
 }
 
+
+// Extract extracts content from a webpage.
+// Type can be: markdown, text, html, article, structured, links, images, metadata
+func (c *Client) Extract(opts ExtractOptions) (*ExtractResult, error) {
+	if opts.URL == "" {
+		return nil, &APIError{
+			Code:       ErrInvalidParams,
+			Message:    "URL is required",
+			StatusCode: 400,
+		}
+	}
+
+	if opts.Type == "" {
+		opts.Type = ExtractTypeMarkdown
+	}
+
+	data, err := c.doRequest("POST", "/v1/extract", opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ExtractResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse extract response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ExtractMarkdown extracts markdown content from a webpage.
+func (c *Client) ExtractMarkdown(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeMarkdown})
+}
+
+// ExtractArticle extracts article content from a webpage.
+func (c *Client) ExtractArticle(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeArticle})
+}
+
+// ExtractStructured extracts structured data for LLM/RAG workflows.
+func (c *Client) ExtractStructured(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeStructured})
+}
+
+// ExtractText extracts plain text from a webpage.
+func (c *Client) ExtractText(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeText})
+}
+
+// ExtractLinks extracts all links from a webpage.
+func (c *Client) ExtractLinks(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeLinks})
+}
+
+// ExtractImages extracts all images from a webpage.
+func (c *Client) ExtractImages(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeImages})
+}
+
+// ExtractPageMetadata extracts page metadata from a webpage.
+func (c *Client) ExtractPageMetadata(url string) (*ExtractResult, error) {
+	return c.Extract(ExtractOptions{URL: url, Type: ExtractTypeMetadata})
+}
+
 // doRequest performs an HTTP request to the API.
 func (c *Client) doRequest(method, path string, body interface{}) ([]byte, error) {
 	url := c.baseURL + path

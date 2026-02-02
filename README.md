@@ -532,3 +532,31 @@ if err != nil {
 ## License
 
 MIT
+
+### Extract API
+
+Extract clean content from any webpage - perfect for LLM/RAG workflows.
+
+```go
+// Extract markdown
+result, _ := client.ExtractMarkdown("https://example.com/article")
+fmt.Println(result.Data)
+
+// Extract article with metadata
+article, _ := client.ExtractArticle("https://blog.example.com")
+// article.Data contains title, content, byline, etc.
+
+// Extract structured data for LLM
+structured, _ := client.ExtractStructured("https://example.com")
+// structured.Data contains wordCount, content, etc.
+
+// Extract with full options
+result, _ := client.Extract(snapapi.ExtractOptions{
+    URL:        "https://example.com",
+    Type:       snapapi.ExtractTypeMarkdown,
+    BlockAds:   true,
+    MaxLength:  5000,
+})
+```
+
+Available types: `ExtractTypeMarkdown`, `ExtractTypeText`, `ExtractTypeHTML`, `ExtractTypeArticle`, `ExtractTypeStructured`, `ExtractTypeLinks`, `ExtractTypeImages`, `ExtractTypeMetadata`
