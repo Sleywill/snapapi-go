@@ -5,7 +5,7 @@ Official Go SDK for [SnapAPI](https://snapapi.pics) - Lightning-fast screenshot 
 ## Installation
 
 ```bash
-go get github.com/Sleywill/snapapi-go
+go get github.com/snapapi-dev/snapapi-go
 ```
 
 ## Quick Start
@@ -17,7 +17,7 @@ import (
     "log"
     "os"
 
-    "github.com/Sleywill/snapapi-go"
+    "github.com/snapapi-dev/snapapi-go"
 )
 
 func main() {
@@ -392,6 +392,96 @@ fmt.Printf("Remaining: %d\n", usage.Remaining)
 fmt.Printf("Resets at: %s\n", usage.ResetAt)
 ```
 
+### Screenshot from Markdown
+
+```go
+markdown := "# Hello World\n\nThis is **bold** and this is *italic*.\n\n- Item 1\n- Item 2\n- Item 3"
+data, err := client.ScreenshotFromMarkdown(markdown, &snapapi.ScreenshotOptions{
+    Width:  800,
+    Height: 600,
+})
+if err != nil {
+    log.Fatal(err)
+}
+os.WriteFile("markdown.png", data, 0644)
+```
+
+### Extract Content
+
+```go
+// Extract as Markdown
+result, err := client.ExtractMarkdown("https://example.com")
+fmt.Println(result.Content)
+
+// Extract article content
+result, err := client.ExtractArticle("https://blog.example.com/post")
+fmt.Printf("Title: %s\n", result.Title)
+fmt.Println(result.Content)
+
+// Extract with full options
+result, err := client.Extract(snapapi.ExtractOptions{
+    URL:                "https://example.com",
+    Type:               "markdown",
+    Selector:           ".main-content",
+    BlockAds:           true,
+    BlockCookieBanners: true,
+    CleanOutput:        true,
+})
+
+// Extract plain text
+result, err := client.ExtractText("https://example.com")
+
+// Extract structured data
+result, err := client.ExtractStructured("https://example.com")
+
+// Extract links
+result, err := client.ExtractLinks("https://example.com")
+fmt.Printf("Found %d links\n", len(result.Links))
+
+// Extract images
+result, err := client.ExtractImages("https://example.com")
+fmt.Printf("Found %d images\n", len(result.Images))
+
+// Extract metadata
+result, err := client.ExtractMetadata("https://example.com")
+fmt.Printf("Title: %s\n", result.Title)
+fmt.Printf("Metadata: %v\n", result.Metadata)
+```
+
+### Analyze with AI
+
+```go
+// Basic analysis
+result, err := client.Analyze(snapapi.AnalyzeOptions{
+    URL:    "https://example.com",
+    Prompt: "Describe the main content and purpose of this webpage",
+})
+fmt.Println(result.Analysis)
+
+// Analysis with custom provider and model
+result, err := client.Analyze(snapapi.AnalyzeOptions{
+    URL:      "https://example.com/pricing",
+    Prompt:   "Extract all pricing tiers and features as JSON",
+    Provider: "openai",
+    APIKey:   "sk-xxx",
+    Model:    "gpt-4o",
+})
+fmt.Println(result.Analysis)
+
+// Analysis with screenshot and metadata
+result, err := client.Analyze(snapapi.AnalyzeOptions{
+    URL:               "https://example.com",
+    Prompt:            "Is this website accessible and mobile-friendly?",
+    IncludeScreenshot: true,
+    IncludeMetadata:   true,
+    BlockAds:          true,
+    BlockCookieBanners: true,
+})
+fmt.Println(result.Analysis)
+// result.Screenshot contains base64 encoded screenshot
+// result.Metadata contains page metadata
+```
+
 ## Configuration Options
 
 ### Client Options
@@ -422,9 +512,10 @@ client := snapapi.NewClient("sk_live_xxx",
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `URL` | string | - | URL to capture (required if no HTML) |
-| `HTML` | string | - | HTML content to render (required if no URL) |
-| `Format` | string | `"png"` | `"png"`, `"jpeg"`, `"webp"`, `"pdf"` |
+| `URL` | string | - | URL to capture (required if no HTML/Markdown) |
+| `HTML` | string | - | HTML content to render (required if no URL/Markdown) |
+| `Markdown` | string | - | Markdown content to render as screenshot |
+| `Format` | string | `"png"` | `"png"`, `"jpeg"`, `"webp"`, `"avif"`, `"pdf"` |
 | `Quality` | *int | `80` | Image quality 1-100 (JPEG/WebP) |
 | `Device` | DevicePreset | - | Device preset name |
 | `Width` | int | `1280` | Viewport width (100-3840) |
@@ -494,6 +585,40 @@ client := snapapi.NewClient("sk_live_xxx",
 | `PageRanges` | string | - | Page ranges (e.g., "1-5") |
 | `PreferCSSPageSize` | *bool | `false` | Use CSS page size |
 
+### Extract Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `URL` | string | - | URL to extract content from (required) |
+| `Type` | string | `"markdown"` | `"markdown"`, `"article"`, `"structured"`, `"text"`, `"links"`, `"images"`, `"metadata"` |
+| `Selector` | string | - | CSS selector to scope extraction |
+| `WaitFor` | string | - | Wait for selector before extraction |
+| `Timeout` | int | `30000` | Max wait time (ms) |
+| `DarkMode` | bool | `false` | Emulate dark mode |
+| `BlockAds` | bool | `false` | Block ads |
+| `BlockCookieBanners` | bool | `false` | Hide cookie banners |
+| `IncludeImages` | bool | `false` | Include image references |
+| `MaxLength` | *int | - | Max content length (characters) |
+| `CleanOutput` | bool | `false` | Clean and simplify output |
+
+### Analyze Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `URL` | string | - | URL to analyze (required) |
+| `Prompt` | string | - | Analysis prompt/question (required) |
+| `Provider` | string | - | AI provider (e.g., `"openai"`, `"anthropic"`) |
+| `APIKey` | string | - | API key for the AI provider |
+| `Model` | string | - | Model to use (e.g., `"gpt-4o"`) |
+| `JSONSchema` | string | - | JSON schema for structured output |
+| `Timeout` | int | `60000` | Max wait time (ms) |
+| `WaitFor` | string | - | Wait for selector before analysis |
+| `BlockAds` | bool | `false` | Block ads |
+| `BlockCookieBanners` | bool | `false` | Hide cookie banners |
+| `IncludeScreenshot` | bool | `false` | Include page screenshot |
+| `IncludeMetadata` | bool | `false` | Include page metadata |
+| `MaxContentLength` | *int | - | Max content length for analysis |
+
 ## Error Handling
 
 ```go
@@ -532,31 +657,3 @@ if err != nil {
 ## License
 
 MIT
-
-### Extract API
-
-Extract clean content from any webpage - perfect for LLM/RAG workflows.
-
-```go
-// Extract markdown
-result, _ := client.ExtractMarkdown("https://example.com/article")
-fmt.Println(result.Data)
-
-// Extract article with metadata
-article, _ := client.ExtractArticle("https://blog.example.com")
-// article.Data contains title, content, byline, etc.
-
-// Extract structured data for LLM
-structured, _ := client.ExtractStructured("https://example.com")
-// structured.Data contains wordCount, content, etc.
-
-// Extract with full options
-result, _ := client.Extract(snapapi.ExtractOptions{
-    URL:        "https://example.com",
-    Type:       snapapi.ExtractTypeMarkdown,
-    BlockAds:   true,
-    MaxLength:  5000,
-})
-```
-
-Available types: `ExtractTypeMarkdown`, `ExtractTypeText`, `ExtractTypeHTML`, `ExtractTypeArticle`, `ExtractTypeStructured`, `ExtractTypeLinks`, `ExtractTypeImages`, `ExtractTypeMetadata`
