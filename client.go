@@ -453,21 +453,55 @@ func (c *Client) doRequest(method, path string, body interface{}) ([]byte, error
 	return respBody, nil
 }
 
+
 // handleError parses an error response from the API.
 func (c *Client) handleError(body []byte, statusCode int) error {
 	var errResp errorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
+	if err := json.Unmarshal(body, &errResp); err != nil || errResp.Message == "" {
 		return &APIError{
 			Code:       "HTTP_ERROR",
-			Message:    fmt.Sprintf("HTTP %d", statusCode),
+			Message:    fmt.Sprintf("HTTP %d: %s", statusCode, string(body)),
 			StatusCode: statusCode,
 		}
 	}
 
+	// Map the HTTP error string to a code
+	code := mapErrorCode(errResp.Error, statusCode)
+
 	return &APIError{
-		Code:       errResp.Error.Code,
-		Message:    errResp.Error.Message,
+		Code:       code,
+		Message:    errResp.Message,
 		StatusCode: statusCode,
-		Details:    errResp.Error.Details,
+		Details:    errResp.Details,
+	}
+}
+
+// mapErrorCode maps the API error type string to an SDK error code constant.
+func mapErrorCode(errorType string, statusCode int) string {
+	switch statusCode {
+	case 401:
+		return ErrUnauthorized
+	case 403:
+		return ErrForbidden
+	case 429:
+		return ErrRateLimited
+	}
+
+	switch errorType {
+	case "Validation Error":
+		return ErrInvalidParams
+	case "Unauthorized":
+		return ErrUnauthorized
+	case "Forbidden":
+		return ErrForbidden
+	case "Rate Limited":
+		return ErrRateLimited
+	case "Timeout":
+		return ErrTimeout
+	default:
+		if statusCode >= 500 {
+			return "SERVER_ERROR"
+		}
+		return errorType
 	}
 }
