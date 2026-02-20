@@ -1,5 +1,51 @@
 package snapapi
 
+// PingResult represents the result of a ping check.
+type PingResult struct {
+	Status    string `json:"status"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// PDFDedicatedOptions represents options for the dedicated PDF endpoint.
+type PDFDedicatedOptions struct {
+	URL                string            `json:"url,omitempty"`
+	HTML               string            `json:"html,omitempty"`
+	Markdown           string            `json:"markdown,omitempty"`
+	Width              int               `json:"width,omitempty"`
+	Height             int               `json:"height,omitempty"`
+	Device             DevicePreset      `json:"device,omitempty"`
+	Delay              int               `json:"delay,omitempty"`
+	Timeout            int               `json:"timeout,omitempty"`
+	WaitUntil          string            `json:"waitUntil,omitempty"`
+	WaitForSelector    string            `json:"waitForSelector,omitempty"`
+	DarkMode           bool              `json:"darkMode,omitempty"`
+	CSS                string            `json:"css,omitempty"`
+	JavaScript         string            `json:"javascript,omitempty"`
+	BlockAds           bool              `json:"blockAds,omitempty"`
+	BlockCookieBanners bool              `json:"blockCookieBanners,omitempty"`
+	UserAgent          string            `json:"userAgent,omitempty"`
+	ExtraHeaders       map[string]string `json:"extraHeaders,omitempty"`
+	Cookies            []Cookie          `json:"cookies,omitempty"`
+	PDFOptions         *PDFOptions       `json:"pdfOptions,omitempty"`
+	ResponseType       string            `json:"responseType,omitempty"`
+}
+
+// AsyncResult represents the result of an async screenshot request.
+type AsyncResult struct {
+	Success bool   `json:"success"`
+	JobID   string `json:"jobId"`
+	Status  string `json:"status"`
+}
+
+// AsyncStatus represents the status of an async screenshot job.
+type AsyncStatus struct {
+	Success bool               `json:"success"`
+	JobID   string             `json:"jobId"`
+	Status  string             `json:"status"`
+	Result  *ScreenshotResult  `json:"result,omitempty"`
+	Error   string             `json:"error,omitempty"`
+}
+
 // DevicePreset represents a device preset name.
 type DevicePreset string
 

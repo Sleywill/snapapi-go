@@ -379,6 +379,74 @@ func (c *Client) ExtractMetadata(url string) (*ExtractResult, error) {
 	return c.Extract(ExtractOptions{URL: url, Type: "metadata"})
 }
 
+// Ping checks the API health status.
+func (c *Client) Ping() (*PingResult, error) {
+	data, err := c.doRequest("GET", "/v1/ping", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result PingResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// PDFDedicated generates a PDF using the dedicated /v1/pdf endpoint.
+func (c *Client) PDFDedicated(opts PDFDedicatedOptions) ([]byte, error) {
+	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
+		return nil, &APIError{
+			Code:       ErrInvalidParams,
+			Message:    "URL, HTML, or Markdown is required",
+			StatusCode: 400,
+		}
+	}
+
+	return c.doRequest("POST", "/v1/pdf", opts)
+}
+
+// ScreenshotAsync captures a screenshot asynchronously, returning a job ID for polling.
+func (c *Client) ScreenshotAsync(opts ScreenshotOptions) (*AsyncResult, error) {
+	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
+		return nil, &APIError{
+			Code:       ErrInvalidParams,
+			Message:    "URL, HTML, or Markdown is required",
+			StatusCode: 400,
+		}
+	}
+
+	opts.ResponseType = "json"
+
+	data, err := c.doRequest("POST", "/v1/screenshot?async=true", opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var result AsyncResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetScreenshotStatus polls the status of an async screenshot job.
+func (c *Client) GetScreenshotStatus(jobID string) (*AsyncStatus, error) {
+	data, err := c.doRequest("GET", "/v1/screenshot/status/"+jobID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var status AsyncStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &status, nil
+}
+
 // Analyze performs AI-powered analysis of a webpage.
 func (c *Client) Analyze(opts AnalyzeOptions) (*AnalyzeResult, error) {
 	if opts.URL == "" {
