@@ -24,7 +24,7 @@ import (
 const (
 	defaultBaseURL = "https://api.snapapi.pics"
 	defaultTimeout = 60 * time.Second
-	userAgent      = "snapapi-go/1.2.0"
+	userAgent      = "snapapi-go/1.3.1"
 )
 
 // Client is a SnapAPI client.
