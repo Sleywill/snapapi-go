@@ -1,82 +1,6 @@
 package snapapi
 
-// PingResult represents the result of a ping check.
-type PingResult struct {
-	Status    string `json:"status"`
-	Timestamp int64  `json:"timestamp"`
-}
-
-// PDFDedicatedOptions represents options for the dedicated PDF endpoint.
-type PDFDedicatedOptions struct {
-	URL                string            `json:"url,omitempty"`
-	HTML               string            `json:"html,omitempty"`
-	Markdown           string            `json:"markdown,omitempty"`
-	Width              int               `json:"width,omitempty"`
-	Height             int               `json:"height,omitempty"`
-	Device             DevicePreset      `json:"device,omitempty"`
-	Delay              int               `json:"delay,omitempty"`
-	Timeout            int               `json:"timeout,omitempty"`
-	WaitUntil          string            `json:"waitUntil,omitempty"`
-	WaitForSelector    string            `json:"waitForSelector,omitempty"`
-	DarkMode           bool              `json:"darkMode,omitempty"`
-	CSS                string            `json:"css,omitempty"`
-	JavaScript         string            `json:"javascript,omitempty"`
-	BlockAds           bool              `json:"blockAds,omitempty"`
-	BlockCookieBanners bool              `json:"blockCookieBanners,omitempty"`
-	UserAgent          string            `json:"userAgent,omitempty"`
-	ExtraHeaders       map[string]string `json:"extraHeaders,omitempty"`
-	Cookies            []Cookie          `json:"cookies,omitempty"`
-	PDFOptions         *PDFOptions       `json:"pdfOptions,omitempty"`
-	ResponseType       string            `json:"responseType,omitempty"`
-}
-
-// AsyncResult represents the result of an async screenshot request.
-type AsyncResult struct {
-	Success bool   `json:"success"`
-	JobID   string `json:"jobId"`
-	Status  string `json:"status"`
-}
-
-// AsyncStatus represents the status of an async screenshot job.
-type AsyncStatus struct {
-	Success bool               `json:"success"`
-	JobID   string             `json:"jobId"`
-	Status  string             `json:"status"`
-	Result  *ScreenshotResult  `json:"result,omitempty"`
-	Error   string             `json:"error,omitempty"`
-}
-
-// DevicePreset represents a device preset name.
-type DevicePreset string
-
-// Available device presets
-const (
-	DeviceDesktop1080p       DevicePreset = "desktop-1080p"
-	DeviceDesktop1440p       DevicePreset = "desktop-1440p"
-	DeviceDesktop4K          DevicePreset = "desktop-4k"
-	DeviceMacBookPro13       DevicePreset = "macbook-pro-13"
-	DeviceMacBookPro16       DevicePreset = "macbook-pro-16"
-	DeviceIMac24             DevicePreset = "imac-24"
-	DeviceIPhoneSE           DevicePreset = "iphone-se"
-	DeviceIPhone12           DevicePreset = "iphone-12"
-	DeviceIPhone13           DevicePreset = "iphone-13"
-	DeviceIPhone14           DevicePreset = "iphone-14"
-	DeviceIPhone14Pro        DevicePreset = "iphone-14-pro"
-	DeviceIPhone15           DevicePreset = "iphone-15"
-	DeviceIPhone15Pro        DevicePreset = "iphone-15-pro"
-	DeviceIPhone15ProMax     DevicePreset = "iphone-15-pro-max"
-	DeviceIPad               DevicePreset = "ipad"
-	DeviceIPadMini           DevicePreset = "ipad-mini"
-	DeviceIPadAir            DevicePreset = "ipad-air"
-	DeviceIPadPro11          DevicePreset = "ipad-pro-11"
-	DeviceIPadPro129         DevicePreset = "ipad-pro-12.9"
-	DevicePixel7             DevicePreset = "pixel-7"
-	DevicePixel8             DevicePreset = "pixel-8"
-	DevicePixel8Pro          DevicePreset = "pixel-8-pro"
-	DeviceSamsungGalaxyS23   DevicePreset = "samsung-galaxy-s23"
-	DeviceSamsungGalaxyS24   DevicePreset = "samsung-galaxy-s24"
-	DeviceSamsungGalaxyTabS9 DevicePreset = "samsung-galaxy-tab-s9"
-)
+// ─── Shared ───────────────────────────────────────────────────────────────────
 
 // Cookie represents a browser cookie.
 type Cookie struct {
@@ -98,10 +22,9 @@ type HTTPAuth struct {
 
 // ProxyConfig represents proxy configuration.
 type ProxyConfig struct {
-	Server   string   `json:"server"`
-	Username string   `json:"username,omitempty"`
-	Password string   `json:"password,omitempty"`
-	Bypass   []string `json:"bypass,omitempty"`
+	Server   string `json:"server"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 // Geolocation represents geolocation coordinates.
@@ -111,266 +34,126 @@ type Geolocation struct {
 	Accuracy  *float64 `json:"accuracy,omitempty"`
 }
 
-// PDFOptions represents PDF generation options.
-type PDFOptions struct {
-	PageSize            string   `json:"pageSize,omitempty"`
-	Width               string   `json:"width,omitempty"`
-	Height              string   `json:"height,omitempty"`
-	Landscape           *bool    `json:"landscape,omitempty"`
-	MarginTop           string   `json:"marginTop,omitempty"`
-	MarginRight         string   `json:"marginRight,omitempty"`
-	MarginBottom        string   `json:"marginBottom,omitempty"`
-	MarginLeft          string   `json:"marginLeft,omitempty"`
-	PrintBackground     *bool    `json:"printBackground,omitempty"`
-	HeaderTemplate      string   `json:"headerTemplate,omitempty"`
-	FooterTemplate      string   `json:"footerTemplate,omitempty"`
-	DisplayHeaderFooter *bool    `json:"displayHeaderFooter,omitempty"`
-	Scale               *float64 `json:"scale,omitempty"`
-	PageRanges          string   `json:"pageRanges,omitempty"`
-	PreferCSSPageSize   *bool    `json:"preferCSSPageSize,omitempty"`
+// PDFPageOptions represents PDF page layout options.
+type PDFPageOptions struct {
+	PageSize  string `json:"pageSize,omitempty"`
+	Landscape bool   `json:"landscape,omitempty"`
+	// Margins
+	MarginTop    string `json:"marginTop,omitempty"`
+	MarginRight  string `json:"marginRight,omitempty"`
+	MarginBottom string `json:"marginBottom,omitempty"`
+	MarginLeft   string `json:"marginLeft,omitempty"`
 }
 
-// ThumbnailOptions represents thumbnail generation options.
-type ThumbnailOptions struct {
-	Enabled bool   `json:"enabled"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
-	Fit     string `json:"fit,omitempty"`
+// StorageDestination holds storage destination options embedded in Screenshot requests.
+type StorageDestination struct {
+	Destination string `json:"destination,omitempty"` // e.g. "s3"
+	Format      string `json:"format,omitempty"`
 }
 
-// ExtractMetadata represents options for additional metadata extraction.
-type ExtractMetadata struct {
-	Fonts          *bool `json:"fonts,omitempty"`
-	Colors         *bool `json:"colors,omitempty"`
-	Links          *bool `json:"links,omitempty"`
-	HTTPStatusCode *bool `json:"httpStatusCode,omitempty"`
-}
+// ─── Screenshot ───────────────────────────────────────────────────────────────
 
-// ScreenshotOptions represents options for taking a screenshot.
+// ScreenshotOptions represents options for the POST /v1/screenshot endpoint.
 type ScreenshotOptions struct {
-	URL                    string            `json:"url,omitempty"`
-	HTML                   string            `json:"html,omitempty"`
-	Markdown               string            `json:"markdown,omitempty"`
-	Format                 string            `json:"format,omitempty"`
-	Quality                *int              `json:"quality,omitempty"`
-	Device                 DevicePreset      `json:"device,omitempty"`
-	Width                  int               `json:"width,omitempty"`
-	Height                 int               `json:"height,omitempty"`
-	DeviceScaleFactor      *float64          `json:"deviceScaleFactor,omitempty"`
-	IsMobile               bool              `json:"isMobile,omitempty"`
-	HasTouch               bool              `json:"hasTouch,omitempty"`
-	IsLandscape            bool              `json:"isLandscape,omitempty"`
-	FullPage               bool              `json:"fullPage,omitempty"`
-	FullPageScrollDelay    *int              `json:"fullPageScrollDelay,omitempty"`
-	FullPageMaxHeight      *int              `json:"fullPageMaxHeight,omitempty"`
-	Selector               string            `json:"selector,omitempty"`
-	SelectorScrollIntoView *bool             `json:"selectorScrollIntoView,omitempty"`
-	ClipX                  *int              `json:"clipX,omitempty"`
-	ClipY                  *int              `json:"clipY,omitempty"`
-	ClipWidth              *int              `json:"clipWidth,omitempty"`
-	ClipHeight             *int              `json:"clipHeight,omitempty"`
-	Delay                  int               `json:"delay,omitempty"`
-	Timeout                int               `json:"timeout,omitempty"`
-	WaitUntil              string            `json:"waitUntil,omitempty"`
-	WaitForSelector        string            `json:"waitForSelector,omitempty"`
-	WaitForSelectorTimeout *int              `json:"waitForSelectorTimeout,omitempty"`
-	DarkMode               bool              `json:"darkMode,omitempty"`
-	ReducedMotion          bool              `json:"reducedMotion,omitempty"`
-	CSS                    string            `json:"css,omitempty"`
-	JavaScript             string            `json:"javascript,omitempty"`
-	HideSelectors          []string          `json:"hideSelectors,omitempty"`
-	ClickSelector          string            `json:"clickSelector,omitempty"`
-	ClickDelay             *int              `json:"clickDelay,omitempty"`
-	BlockAds               bool              `json:"blockAds,omitempty"`
-	BlockTrackers          bool              `json:"blockTrackers,omitempty"`
-	BlockCookieBanners     bool              `json:"blockCookieBanners,omitempty"`
-	BlockChatWidgets       bool              `json:"blockChatWidgets,omitempty"`
-	BlockResources         []string          `json:"blockResources,omitempty"`
-	UserAgent              string            `json:"userAgent,omitempty"`
-	ExtraHeaders           map[string]string `json:"extraHeaders,omitempty"`
-	Cookies                []Cookie          `json:"cookies,omitempty"`
-	HTTPAuth               *HTTPAuth         `json:"httpAuth,omitempty"`
-	Proxy                  *ProxyConfig      `json:"proxy,omitempty"`
-	Geolocation            *Geolocation      `json:"geolocation,omitempty"`
-	Timezone               string            `json:"timezone,omitempty"`
-	Locale                 string            `json:"locale,omitempty"`
-	PDFOptions             *PDFOptions       `json:"pdfOptions,omitempty"`
-	Thumbnail              *ThumbnailOptions `json:"thumbnail,omitempty"`
-	FailOnHTTPError        bool              `json:"failOnHttpError,omitempty"`
-	Cache                  bool              `json:"cache,omitempty"`
-	CacheTTL               *int              `json:"cacheTtl,omitempty"`
-	ResponseType           string            `json:"responseType,omitempty"`
-	IncludeMetadata        bool              `json:"includeMetadata,omitempty"`
-	ExtractMetadata        *ExtractMetadata  `json:"extractMetadata,omitempty"`
-	FailIfContentMissing   []string          `json:"failIfContentMissing,omitempty"`
-	FailIfContentContains  []string          `json:"failIfContentContains,omitempty"`
+	// Source – one of URL, HTML, or Markdown must be set
+	URL      string `json:"url,omitempty"`
+	HTML     string `json:"html,omitempty"`
+	Markdown string `json:"markdown,omitempty"`
+
+	// Output format
+	Format  string `json:"format,omitempty"`  // png|jpeg|webp|avif|pdf
+	Quality *int   `json:"quality,omitempty"` // 0-100
+
+	// Viewport
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+	Device string `json:"device,omitempty"`
+
+	// Page behaviour
+	FullPage        bool   `json:"fullPage,omitempty"`
+	Selector        string `json:"selector,omitempty"`
+	Delay           int    `json:"delay,omitempty"`
+	Timeout         int    `json:"timeout,omitempty"`
+	WaitUntil       string `json:"waitUntil,omitempty"`
+	WaitForSelector string `json:"waitForSelector,omitempty"`
+
+	// Visual
+	DarkMode bool `json:"darkMode,omitempty"`
+
+	// Scripting
+	CSS           string   `json:"css,omitempty"`
+	JavaScript    string   `json:"javascript,omitempty"`
+	HideSelectors []string `json:"hideSelectors,omitempty"`
+	ClickSelector string   `json:"clickSelector,omitempty"`
+
+	// Blocking
+	BlockAds           bool `json:"blockAds,omitempty"`
+	BlockTrackers      bool `json:"blockTrackers,omitempty"`
+	BlockCookieBanners bool `json:"blockCookieBanners,omitempty"`
+
+	// Identity / auth
+	UserAgent    string            `json:"userAgent,omitempty"`
+	ExtraHeaders map[string]string `json:"extraHeaders,omitempty"`
+	Cookies      []Cookie          `json:"cookies,omitempty"`
+	HTTPAuth     *HTTPAuth         `json:"httpAuth,omitempty"`
+
+	// Proxy
+	Proxy        string `json:"proxy,omitempty"`
+	PremiumProxy bool   `json:"premiumProxy,omitempty"`
+
+	// Environment
+	Geolocation *Geolocation `json:"geolocation,omitempty"`
+	Timezone    string       `json:"timezone,omitempty"`
+
+	// PDF
+	PDF *PDFPageOptions `json:"pdf,omitempty"`
+
+	// Storage (returns JSON with id+url instead of binary)
+	Storage *StorageDestination `json:"storage,omitempty"`
+
+	// Webhook
+	WebhookURL string `json:"webhookUrl,omitempty"`
 }
 
-// ScrollEasing represents the easing function for scroll animation.
-type ScrollEasing string
-
-const (
-	ScrollEasingLinear        ScrollEasing = "linear"
-	ScrollEasingEaseIn        ScrollEasing = "ease_in"
-	ScrollEasingEaseOut       ScrollEasing = "ease_out"
-	ScrollEasingEaseInOut     ScrollEasing = "ease_in_out"
-	ScrollEasingEaseInOutQuint ScrollEasing = "ease_in_out_quint"
-)
-
-// VideoOptions represents options for capturing a video.
-type VideoOptions struct {
-	URL               string            `json:"url"`
-	Format            string            `json:"format,omitempty"`
-	Quality           *int              `json:"quality,omitempty"`
-	Width             int               `json:"width,omitempty"`
-	Height            int               `json:"height,omitempty"`
-	Device            DevicePreset      `json:"device,omitempty"`
-	Duration          int               `json:"duration,omitempty"`
-	FPS               int               `json:"fps,omitempty"`
-	Delay             int               `json:"delay,omitempty"`
-	Timeout           int               `json:"timeout,omitempty"`
-	WaitUntil         string            `json:"waitUntil,omitempty"`
-	WaitForSelector   string            `json:"waitForSelector,omitempty"`
-	DarkMode          bool              `json:"darkMode,omitempty"`
-	BlockAds          bool              `json:"blockAds,omitempty"`
-	BlockCookieBanners bool             `json:"blockCookieBanners,omitempty"`
-	CSS               string            `json:"css,omitempty"`
-	JavaScript        string            `json:"javascript,omitempty"`
-	HideSelectors     []string          `json:"hideSelectors,omitempty"`
-	UserAgent         string            `json:"userAgent,omitempty"`
-	Cookies           []Cookie          `json:"cookies,omitempty"`
-	ResponseType      string            `json:"responseType,omitempty"`
-	Scroll            bool              `json:"scroll,omitempty"`
-	ScrollDelay       *int              `json:"scrollDelay,omitempty"`
-	ScrollDuration    *int              `json:"scrollDuration,omitempty"`
-	ScrollBy          *int              `json:"scrollBy,omitempty"`
-	ScrollEasing      ScrollEasing      `json:"scrollEasing,omitempty"`
-	ScrollBack        bool              `json:"scrollBack,omitempty"`
-	ScrollComplete    bool              `json:"scrollComplete,omitempty"`
+// StorageUploadResult is returned when Storage options are set.
+type StorageUploadResult struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
 }
 
-// VideoResult represents the result of a video capture.
-type VideoResult struct {
-	Success  bool   `json:"success"`
-	Data     string `json:"data,omitempty"`
-	Format   string `json:"format"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
-	FileSize int    `json:"fileSize"`
-	Duration int    `json:"duration"`
-	Took     int    `json:"took"`
+// ─── Scrape ──────────────────────────────────────────────────────────────────
+
+// ScrapeOptions represents options for the POST /v1/scrape endpoint.
+type ScrapeOptions struct {
+	URL             string `json:"url"`
+	Type            string `json:"type,omitempty"` // text|html|links
+	Pages           int    `json:"pages,omitempty"`
+	WaitMs          int    `json:"waitMs,omitempty"`
+	Proxy           string `json:"proxy,omitempty"`
+	PremiumProxy    bool   `json:"premiumProxy,omitempty"`
+	BlockResources  bool   `json:"blockResources,omitempty"`
+	Locale          string `json:"locale,omitempty"`
 }
 
-// ScreenshotMetadata represents page metadata from screenshot.
-type ScreenshotMetadata struct {
-	Title          string   `json:"title,omitempty"`
-	Description    string   `json:"description,omitempty"`
-	Favicon        string   `json:"favicon,omitempty"`
-	OGTitle        string   `json:"ogTitle,omitempty"`
-	OGDescription  string   `json:"ogDescription,omitempty"`
-	OGImage        string   `json:"ogImage,omitempty"`
-	HTTPStatusCode int      `json:"httpStatusCode,omitempty"`
-	Fonts          []string `json:"fonts,omitempty"`
-	Colors         []string `json:"colors,omitempty"`
-	Links          []string `json:"links,omitempty"`
+// ScrapeResult is the response from /v1/scrape.
+type ScrapeResult struct {
+	Success  bool          `json:"success"`
+	Results  []ScrapeItem  `json:"results"`
 }
 
-// ScreenshotResult represents the result of a screenshot with metadata.
-type ScreenshotResult struct {
-	Success   bool                `json:"success"`
-	Data      string              `json:"data"`
-	Width     int                 `json:"width"`
-	Height    int                 `json:"height"`
-	FileSize  int                 `json:"fileSize"`
-	Took      int                 `json:"took"`
-	Format    string              `json:"format"`
-	Cached    bool                `json:"cached"`
-	Metadata  *ScreenshotMetadata `json:"metadata,omitempty"`
-	Thumbnail string              `json:"thumbnail,omitempty"`
+// ScrapeItem is a single scraped page.
+type ScrapeItem struct {
+	Page int    `json:"page"`
+	URL  string `json:"url"`
+	Data string `json:"data"`
 }
 
-// BatchOptions represents options for batch screenshot operations.
-type BatchOptions struct {
-	URLs               []string `json:"urls"`
-	Format             string   `json:"format,omitempty"`
-	Quality            *int     `json:"quality,omitempty"`
-	Width              int      `json:"width,omitempty"`
-	Height             int      `json:"height,omitempty"`
-	FullPage           bool     `json:"fullPage,omitempty"`
-	DarkMode           bool     `json:"darkMode,omitempty"`
-	BlockAds           bool     `json:"blockAds,omitempty"`
-	BlockCookieBanners bool     `json:"blockCookieBanners,omitempty"`
-	WebhookURL         string   `json:"webhookUrl,omitempty"`
-}
+// ─── Extract ─────────────────────────────────────────────────────────────────
 
-// BatchResult represents the result of a batch operation.
-type BatchResult struct {
-	Success   bool   `json:"success"`
-	JobID     string `json:"jobId"`
-	Status    string `json:"status"`
-	Total     int    `json:"total"`
-	Completed int    `json:"completed,omitempty"`
-	Failed    int    `json:"failed,omitempty"`
-}
-
-// BatchItemResult represents the result of a single item in a batch.
-type BatchItemResult struct {
-	URL      string `json:"url"`
-	Status   string `json:"status"`
-	Data     string `json:"data,omitempty"`
-	Error    string `json:"error,omitempty"`
-	Duration int    `json:"duration,omitempty"`
-}
-
-// BatchStatus represents the status of a batch job.
-type BatchStatus struct {
-	Success     bool              `json:"success"`
-	JobID       string            `json:"jobId"`
-	Status      string            `json:"status"`
-	Total       int               `json:"total"`
-	Completed   int               `json:"completed"`
-	Failed      int               `json:"failed"`
-	Results     []BatchItemResult `json:"results,omitempty"`
-	CreatedAt   string            `json:"createdAt,omitempty"`
-	CompletedAt string            `json:"completedAt,omitempty"`
-}
-
-// DeviceInfo represents device preset information.
-type DeviceInfo struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name"`
-	Width             int     `json:"width"`
-	Height            int     `json:"height"`
-	DeviceScaleFactor float64 `json:"deviceScaleFactor"`
-	IsMobile          bool    `json:"isMobile"`
-}
-
-// DevicesResult represents the result of GetDevices.
-type DevicesResult struct {
-	Success bool                   `json:"success"`
-	Devices map[string][]DeviceInfo `json:"devices"`
-	Total   int                    `json:"total"`
-}
-
-// CapabilitiesResult represents the result of GetCapabilities.
-type CapabilitiesResult struct {
-	Success      bool                   `json:"success"`
-	Version      string                 `json:"version"`
-	Capabilities map[string]interface{} `json:"capabilities"`
-}
-
-// Usage represents API usage statistics.
-type Usage struct {
-	Used      int    `json:"used"`
-	Limit     int    `json:"limit"`
-	Remaining int    `json:"remaining"`
-	ResetAt   string `json:"resetAt"`
-}
-
-// ExtractOptions represents options for content extraction.
+// ExtractOptions represents options for the POST /v1/extract endpoint.
 type ExtractOptions struct {
 	URL                string `json:"url"`
-	Type               string `json:"type,omitempty"`
+	Type               string `json:"type,omitempty"` // html|text|markdown|article|links|images|metadata|structured
 	Selector           string `json:"selector,omitempty"`
 	WaitFor            string `json:"waitFor,omitempty"`
 	Timeout            int    `json:"timeout,omitempty"`
@@ -379,46 +162,145 @@ type ExtractOptions struct {
 	BlockCookieBanners bool   `json:"blockCookieBanners,omitempty"`
 	IncludeImages      bool   `json:"includeImages,omitempty"`
 	MaxLength          *int   `json:"maxLength,omitempty"`
-	CleanOutput        bool   `json:"cleanOutput,omitempty"`
 }
 
-// ExtractResult represents the result of a content extraction.
+// ExtractResult is the response from /v1/extract.
 type ExtractResult struct {
-	Success  bool                   `json:"success"`
-	URL      string                 `json:"url,omitempty"`
-	Type     string                 `json:"type,omitempty"`
-	Content  string                 `json:"content,omitempty"`
-	Title    string                 `json:"title,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	Links    []string               `json:"links,omitempty"`
-	Images   []string               `json:"images,omitempty"`
-	Took     int                    `json:"took,omitempty"`
+	Success      bool        `json:"success"`
+	Type         string      `json:"type"`
+	URL          string      `json:"url"`
+	Data         interface{} `json:"data"` // string or structured object depending on type
+	ResponseTime int         `json:"responseTime"`
 }
 
-// AnalyzeOptions represents options for AI-powered page analysis.
+// ─── Analyze ─────────────────────────────────────────────────────────────────
+
+// AnalyzeOptions represents options for the POST /v1/analyze endpoint.
 type AnalyzeOptions struct {
 	URL               string `json:"url"`
-	Prompt            string `json:"prompt"`
-	Provider          string `json:"provider,omitempty"`
+	Prompt            string `json:"prompt,omitempty"`
+	Provider          string `json:"provider,omitempty"` // openai|anthropic
 	APIKey            string `json:"apiKey,omitempty"`
 	Model             string `json:"model,omitempty"`
 	JSONSchema        string `json:"jsonSchema,omitempty"`
-	Timeout           int    `json:"timeout,omitempty"`
-	WaitFor           string `json:"waitFor,omitempty"`
-	BlockAds          bool   `json:"blockAds,omitempty"`
-	BlockCookieBanners bool  `json:"blockCookieBanners,omitempty"`
 	IncludeScreenshot bool   `json:"includeScreenshot,omitempty"`
 	IncludeMetadata   bool   `json:"includeMetadata,omitempty"`
 	MaxContentLength  *int   `json:"maxContentLength,omitempty"`
 }
 
-// AnalyzeResult represents the result of an AI-powered page analysis.
+// AnalyzeResult is the response from /v1/analyze.
 type AnalyzeResult struct {
-	Success    bool                   `json:"success"`
-	URL        string                 `json:"url,omitempty"`
-	Analysis   string                 `json:"analysis,omitempty"`
-	Structured map[string]interface{} `json:"structured,omitempty"`
-	Screenshot string                 `json:"screenshot,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	Took       int                    `json:"took,omitempty"`
+	Success      bool                   `json:"success"`
+	URL          string                 `json:"url"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	Analysis     interface{}            `json:"analysis"` // string or structured object
+	Provider     string                 `json:"provider"`
+	Model        string                 `json:"model"`
+	ResponseTime int                    `json:"responseTime"`
+}
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+
+// StorageFile represents a file in storage.
+type StorageFile struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	Size      int64  `json:"size"`
+	Format    string `json:"format"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// StorageFilesResult is the response from GET /v1/storage/files.
+type StorageFilesResult struct {
+	Success bool          `json:"success"`
+	Files   []StorageFile `json:"files"`
+	Total   int           `json:"total"`
+}
+
+// StorageUsageResult is the response from GET /v1/storage/usage.
+type StorageUsageResult struct {
+	Success bool  `json:"success"`
+	Used    int64 `json:"used"`
+	Limit   int64 `json:"limit"`
+}
+
+// S3Config is the body for POST /v1/storage/s3.
+type S3Config struct {
+	Bucket          string `json:"bucket"`
+	Region          string `json:"region"`
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	PublicURL       string `json:"publicUrl,omitempty"`
+}
+
+// ─── Scheduled ───────────────────────────────────────────────────────────────
+
+// ScheduledOptions is the body for POST /v1/scheduled.
+type ScheduledOptions struct {
+	URL            string `json:"url"`
+	CronExpression string `json:"cronExpression"`
+	Format         string `json:"format,omitempty"`
+	Width          int    `json:"width,omitempty"`
+	Height         int    `json:"height,omitempty"`
+	FullPage       bool   `json:"fullPage,omitempty"`
+	WebhookURL     string `json:"webhookUrl,omitempty"`
+}
+
+// ScheduledJob is a single scheduled job.
+type ScheduledJob struct {
+	ID             string `json:"id"`
+	URL            string `json:"url"`
+	CronExpression string `json:"cronExpression"`
+	Format         string `json:"format"`
+	Active         bool   `json:"active"`
+	CreatedAt      string `json:"createdAt"`
+	LastRunAt      string `json:"lastRunAt,omitempty"`
+	NextRunAt      string `json:"nextRunAt,omitempty"`
+}
+
+// ScheduledListResult is the response from GET /v1/scheduled.
+type ScheduledListResult struct {
+	Success bool           `json:"success"`
+	Jobs    []ScheduledJob `json:"jobs"`
+}
+
+// ─── Webhooks ─────────────────────────────────────────────────────────────────
+
+// WebhookOptions is the body for POST /v1/webhooks.
+type WebhookOptions struct {
+	URL    string   `json:"url"`
+	Events []string `json:"events"`
+	Secret string   `json:"secret,omitempty"`
+}
+
+// Webhook represents a registered webhook.
+type Webhook struct {
+	ID        string   `json:"id"`
+	URL       string   `json:"url"`
+	Events    []string `json:"events"`
+	Active    bool     `json:"active"`
+	CreatedAt string   `json:"createdAt"`
+}
+
+// WebhooksListResult is the response from GET /v1/webhooks.
+type WebhooksListResult struct {
+	Success  bool      `json:"success"`
+	Webhooks []Webhook `json:"webhooks"`
+}
+
+// ─── Keys ─────────────────────────────────────────────────────────────────────
+
+// APIKey represents an API key.
+type APIKey struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Key       string `json:"key,omitempty"` // only present on creation
+	CreatedAt string `json:"createdAt"`
+}
+
+// KeysListResult is the response from GET /v1/keys.
+type KeysListResult struct {
+	Success bool     `json:"success"`
+	Keys    []APIKey `json:"keys"`
 }

@@ -1,9 +1,9 @@
-// Package snapapi provides a Go client for the SnapAPI screenshot service.
+// Package snapapi provides a Go client for the SnapAPI screenshot and web extraction service.
 //
 // Example usage:
 //
-//	client := snapapi.NewClient("sk_live_xxx")
-//	data, err := client.Screenshot(snapapi.ScreenshotOptions{
+//	client := snapapi.NewClient("your-api-key")
+//	data, err := client.Screenshot(ctx, snapapi.ScreenshotOptions{
 //	    URL: "https://example.com",
 //	})
 //	if err != nil {
@@ -14,6 +14,7 @@ package snapapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,18 +24,24 @@ import (
 
 const (
 	defaultBaseURL = "https://api.snapapi.pics"
-	defaultTimeout = 60 * time.Second
-	userAgent      = "snapapi-go/1.3.1"
+	defaultTimeout = 90 * time.Second
+	userAgent      = "snapapi-go/2.0.0"
 )
 
-// Client is a SnapAPI client.
+// Client is the main SnapAPI client.
 type Client struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+
+	// Sub-clients for resource groups
+	Storage   *StorageClient
+	Scheduled *ScheduledClient
+	Webhooks  *WebhooksClient
+	Keys      *KeysClient
 }
 
-// ClientOption is a function that configures a Client.
+// ClientOption configures a Client.
 type ClientOption func(*Client)
 
 // WithBaseURL sets a custom base URL for the API.
@@ -51,7 +58,7 @@ func WithTimeout(timeout time.Duration) ClientOption {
 	}
 }
 
-// WithHTTPClient sets a custom HTTP client.
+// WithHTTPClient replaces the underlying HTTP client.
 func WithHTTPClient(httpClient *http.Client) ClientOption {
 	return func(c *Client) {
 		c.httpClient = httpClient
@@ -67,509 +74,267 @@ func NewClient(apiKey string, opts ...ClientOption) *Client {
 			Timeout: defaultTimeout,
 		},
 	}
-
 	for _, opt := range opts {
 		opt(c)
 	}
-
+	c.Storage = &StorageClient{c}
+	c.Scheduled = &ScheduledClient{c}
+	c.Webhooks = &WebhooksClient{c}
+	c.Keys = &KeysClient{c}
 	return c
 }
 
-// Screenshot captures a screenshot of the specified URL or HTML content.
-// Returns the raw image bytes for binary/base64 response types,
-// or use ScreenshotWithMetadata for JSON response with metadata.
-func (c *Client) Screenshot(opts ScreenshotOptions) ([]byte, error) {
+// ─── Core Endpoints ───────────────────────────────────────────────────────────
+
+// Screenshot captures a screenshot of a URL or HTML/Markdown content.
+// Returns raw binary image bytes (PNG/JPEG/WEBP/AVIF) or PDF bytes.
+// When Storage options are set, returns a StorageResult JSON instead.
+func (c *Client) Screenshot(ctx context.Context, opts ScreenshotOptions) ([]byte, error) {
 	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL, HTML, or Markdown is required",
-			StatusCode: 400,
-		}
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL, HTML, or Markdown is required", StatusCode: 400}
 	}
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
+	return c.doRequest(ctx, "POST", "/v1/screenshot", opts)
 }
 
-// ScreenshotWithMetadata captures a screenshot and returns metadata.
-func (c *Client) ScreenshotWithMetadata(opts ScreenshotOptions) (*ScreenshotResult, error) {
-	opts.ResponseType = "json"
-
-	data, err := c.Screenshot(opts)
+// ScreenshotToStorage captures a screenshot and stores it, returning metadata.
+func (c *Client) ScreenshotToStorage(ctx context.Context, opts ScreenshotOptions) (*StorageUploadResult, error) {
+	data, err := c.Screenshot(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	var result ScreenshotResult
+	var result StorageUploadResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse storage result: %w", err)
 	}
-
 	return &result, nil
 }
 
-// Batch captures screenshots of multiple URLs.
-func (c *Client) Batch(opts BatchOptions) (*BatchResult, error) {
-	if len(opts.URLs) == 0 {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URLs are required",
-			StatusCode: 400,
-		}
-	}
-
-	data, err := c.doRequest("POST", "/v1/screenshot/batch", opts)
-	if err != nil {
-		return nil, err
-	}
-
-	var result BatchResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetBatchStatus retrieves the status of a batch job.
-func (c *Client) GetBatchStatus(jobID string) (*BatchStatus, error) {
-	data, err := c.doRequest("GET", "/v1/screenshot/batch/"+jobID, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var status BatchStatus
-	if err := json.Unmarshal(data, &status); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &status, nil
-}
-
-// GetUsage retrieves your API usage statistics.
-func (c *Client) GetUsage() (*Usage, error) {
-	data, err := c.doRequest("GET", "/v1/usage", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var usage Usage
-	if err := json.Unmarshal(data, &usage); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &usage, nil
-}
-
-// ScreenshotFromHTML captures a screenshot from HTML content.
-func (c *Client) ScreenshotFromHTML(html string, opts *ScreenshotOptions) ([]byte, error) {
-	if html == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "HTML content is required",
-			StatusCode: 400,
-		}
-	}
-
-	if opts == nil {
-		opts = &ScreenshotOptions{}
-	}
-	opts.HTML = html
-	opts.URL = ""
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
-}
-
-// ScreenshotDevice captures a screenshot using a device preset.
-func (c *Client) ScreenshotDevice(url string, device DevicePreset, opts *ScreenshotOptions) ([]byte, error) {
-	if url == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL is required",
-			StatusCode: 400,
-		}
-	}
-
-	if opts == nil {
-		opts = &ScreenshotOptions{}
-	}
-	opts.URL = url
-	opts.Device = device
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
-}
-
-// PDF generates a PDF from a URL or HTML content.
-func (c *Client) PDF(opts ScreenshotOptions) ([]byte, error) {
-	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL, HTML, or Markdown is required",
-			StatusCode: 400,
-		}
-	}
-
-	opts.Format = "pdf"
-	opts.ResponseType = "binary"
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
-}
-
-// PDFFromHTML generates a PDF from HTML content.
-func (c *Client) PDFFromHTML(html string, pdfOpts *PDFOptions) ([]byte, error) {
-	if html == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "HTML content is required",
-			StatusCode: 400,
-		}
-	}
-
-	opts := ScreenshotOptions{
-		HTML:         html,
-		Format:       "pdf",
-		ResponseType: "binary",
-		PDFOptions:   pdfOpts,
-	}
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
-}
-
-// Video captures a video of a webpage with optional scroll animation.
-func (c *Client) Video(opts VideoOptions) ([]byte, error) {
+// Scrape scrapes content from a URL.
+func (c *Client) Scrape(ctx context.Context, opts ScrapeOptions) (*ScrapeResult, error) {
 	if opts.URL == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL is required",
-			StatusCode: 400,
-		}
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-
-	return c.doRequest("POST", "/v1/video", opts)
-}
-
-// VideoWithResult captures a video and returns structured result with metadata.
-func (c *Client) VideoWithResult(opts VideoOptions) (*VideoResult, error) {
-	if opts.URL == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL is required",
-			StatusCode: 400,
-		}
-	}
-
-	opts.ResponseType = "json"
-	data, err := c.doRequest("POST", "/v1/video", opts)
+	data, err := c.doRequest(ctx, "POST", "/v1/scrape", opts)
 	if err != nil {
 		return nil, err
 	}
-
-	var result VideoResult
+	var result ScrapeResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse scrape result: %w", err)
 	}
-
 	return &result, nil
-}
-
-// GetDevices retrieves available device presets.
-func (c *Client) GetDevices() (*DevicesResult, error) {
-	data, err := c.doRequest("GET", "/v1/devices", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result DevicesResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetCapabilities retrieves API capabilities and features.
-func (c *Client) GetCapabilities() (*CapabilitiesResult, error) {
-	data, err := c.doRequest("GET", "/v1/capabilities", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result CapabilitiesResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// ScreenshotFromMarkdown captures a screenshot from Markdown content.
-func (c *Client) ScreenshotFromMarkdown(markdown string, opts *ScreenshotOptions) ([]byte, error) {
-	if markdown == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "Markdown content is required",
-			StatusCode: 400,
-		}
-	}
-
-	if opts == nil {
-		opts = &ScreenshotOptions{}
-	}
-	opts.Markdown = markdown
-	opts.URL = ""
-	opts.HTML = ""
-
-	return c.doRequest("POST", "/v1/screenshot", opts)
 }
 
 // Extract extracts content from a webpage.
-func (c *Client) Extract(opts ExtractOptions) (*ExtractResult, error) {
+func (c *Client) Extract(ctx context.Context, opts ExtractOptions) (*ExtractResult, error) {
 	if opts.URL == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL is required",
-			StatusCode: 400,
-		}
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-
-	data, err := c.doRequest("POST", "/v1/extract", opts)
+	data, err := c.doRequest(ctx, "POST", "/v1/extract", opts)
 	if err != nil {
 		return nil, err
 	}
-
 	var result ExtractResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse extract result: %w", err)
 	}
-
 	return &result, nil
-}
-
-// ExtractMarkdown extracts content from a webpage as Markdown.
-func (c *Client) ExtractMarkdown(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "markdown"})
-}
-
-// ExtractArticle extracts article content from a webpage.
-func (c *Client) ExtractArticle(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "article"})
-}
-
-// ExtractStructured extracts structured content from a webpage.
-func (c *Client) ExtractStructured(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "structured"})
-}
-
-// ExtractText extracts plain text content from a webpage.
-func (c *Client) ExtractText(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "text"})
-}
-
-// ExtractLinks extracts links from a webpage.
-func (c *Client) ExtractLinks(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "links"})
-}
-
-// ExtractImages extracts image URLs from a webpage.
-func (c *Client) ExtractImages(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "images"})
-}
-
-// ExtractMetadata extracts metadata from a webpage.
-func (c *Client) ExtractMetadata(url string) (*ExtractResult, error) {
-	return c.Extract(ExtractOptions{URL: url, Type: "metadata"})
-}
-
-// Ping checks the API health status.
-func (c *Client) Ping() (*PingResult, error) {
-	data, err := c.doRequest("GET", "/v1/ping", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result PingResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// PDFDedicated generates a PDF using the dedicated /v1/pdf endpoint.
-func (c *Client) PDFDedicated(opts PDFDedicatedOptions) ([]byte, error) {
-	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL, HTML, or Markdown is required",
-			StatusCode: 400,
-		}
-	}
-
-	return c.doRequest("POST", "/v1/pdf", opts)
-}
-
-// ScreenshotAsync captures a screenshot asynchronously, returning a job ID for polling.
-func (c *Client) ScreenshotAsync(opts ScreenshotOptions) (*AsyncResult, error) {
-	if opts.URL == "" && opts.HTML == "" && opts.Markdown == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL, HTML, or Markdown is required",
-			StatusCode: 400,
-		}
-	}
-
-	opts.ResponseType = "json"
-
-	data, err := c.doRequest("POST", "/v1/screenshot?async=true", opts)
-	if err != nil {
-		return nil, err
-	}
-
-	var result AsyncResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &result, nil
-}
-
-// GetScreenshotStatus polls the status of an async screenshot job.
-func (c *Client) GetScreenshotStatus(jobID string) (*AsyncStatus, error) {
-	data, err := c.doRequest("GET", "/v1/screenshot/status/"+jobID, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var status AsyncStatus
-	if err := json.Unmarshal(data, &status); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &status, nil
 }
 
 // Analyze performs AI-powered analysis of a webpage.
-func (c *Client) Analyze(opts AnalyzeOptions) (*AnalyzeResult, error) {
+func (c *Client) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalyzeResult, error) {
 	if opts.URL == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "URL is required",
-			StatusCode: 400,
-		}
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-	if opts.Prompt == "" {
-		return nil, &APIError{
-			Code:       ErrInvalidParams,
-			Message:    "Prompt is required",
-			StatusCode: 400,
-		}
-	}
-
-	data, err := c.doRequest("POST", "/v1/analyze", opts)
+	data, err := c.doRequest(ctx, "POST", "/v1/analyze", opts)
 	if err != nil {
 		return nil, err
 	}
-
 	var result AnalyzeResult
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse analyze result: %w", err)
 	}
-
 	return &result, nil
 }
 
-// doRequest performs an HTTP request to the API.
-func (c *Client) doRequest(method, path string, body interface{}) ([]byte, error) {
+// ─── Convenience helpers ──────────────────────────────────────────────────────
+
+// PDF generates a PDF (sets Format = "pdf").
+func (c *Client) PDF(ctx context.Context, opts ScreenshotOptions) ([]byte, error) {
+	opts.Format = "pdf"
+	return c.Screenshot(ctx, opts)
+}
+
+// ExtractMarkdown is a shorthand for Extract with Type "markdown".
+func (c *Client) ExtractMarkdown(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "markdown"})
+}
+
+// ExtractArticle is a shorthand for Extract with Type "article".
+func (c *Client) ExtractArticle(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "article"})
+}
+
+// ExtractText is a shorthand for Extract with Type "text".
+func (c *Client) ExtractText(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "text"})
+}
+
+// ExtractLinks is a shorthand for Extract with Type "links".
+func (c *Client) ExtractLinks(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "links"})
+}
+
+// ExtractImages is a shorthand for Extract with Type "images".
+func (c *Client) ExtractImages(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "images"})
+}
+
+// ExtractMetadata is a shorthand for Extract with Type "metadata".
+func (c *Client) ExtractMetadata(ctx context.Context, url string) (*ExtractResult, error) {
+	return c.Extract(ctx, ExtractOptions{URL: url, Type: "metadata"})
+}
+
+// ─── Internal ─────────────────────────────────────────────────────────────────
+
+// doRequest performs an HTTP request and returns raw response bytes.
+func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	url := c.baseURL + path
 
 	var bodyReader io.Reader
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+			return nil, fmt.Errorf("marshal request: %w", err)
 		}
-		bodyReader = bytes.NewReader(jsonBody)
+		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
-
-	req.Header.Set("X-Api-Key", c.apiKey)
+	req.Header.Set("x-api-key", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, &APIError{
-			Code:       ErrConnectionError,
-			Message:    fmt.Sprintf("connection error: %v", err),
-			StatusCode: 0,
-		}
+		return nil, &APIError{Code: ErrConnectionError, Message: fmt.Sprintf("connection error: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, c.handleError(respBody, resp.StatusCode)
+		return nil, parseAPIError(respBody, resp.StatusCode)
 	}
-
 	return respBody, nil
 }
 
-
-// handleError parses an error response from the API.
-func (c *Client) handleError(body []byte, statusCode int) error {
-	var errResp errorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil || errResp.Message == "" {
-		return &APIError{
-			Code:       "HTTP_ERROR",
-			Message:    fmt.Sprintf("HTTP %d: %s", statusCode, string(body)),
-			StatusCode: statusCode,
-		}
+// doRequestJSON is like doRequest but unmarshals the response into dst.
+func (c *Client) doRequestJSON(ctx context.Context, method, path string, body interface{}, dst interface{}) error {
+	data, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return err
 	}
-
-	// Map the HTTP error string to a code
-	code := mapErrorCode(errResp.Error, statusCode)
-
-	return &APIError{
-		Code:       code,
-		Message:    errResp.Message,
-		StatusCode: statusCode,
-		Details:    errResp.Details,
+	if dst == nil {
+		return nil
 	}
+	return json.Unmarshal(data, dst)
 }
 
-// mapErrorCode maps the API error type string to an SDK error code constant.
-func mapErrorCode(errorType string, statusCode int) string {
-	switch statusCode {
-	case 401:
-		return ErrUnauthorized
-	case 403:
-		return ErrForbidden
-	case 429:
-		return ErrRateLimited
-	}
+// ─── Sub-Clients ──────────────────────────────────────────────────────────────
 
-	switch errorType {
-	case "Validation Error":
-		return ErrInvalidParams
-	case "Unauthorized":
-		return ErrUnauthorized
-	case "Forbidden":
-		return ErrForbidden
-	case "Rate Limited":
-		return ErrRateLimited
-	case "Timeout":
-		return ErrTimeout
-	default:
-		if statusCode >= 500 {
-			return "SERVER_ERROR"
-		}
-		return errorType
-	}
+// StorageClient provides access to /v1/storage/* endpoints.
+type StorageClient struct{ c *Client }
+
+// ListFiles returns all stored files.
+func (s *StorageClient) ListFiles(ctx context.Context) (*StorageFilesResult, error) {
+	var result StorageFilesResult
+	return &result, s.c.doRequestJSON(ctx, "GET", "/v1/storage/files", nil, &result)
+}
+
+// DeleteFile deletes a stored file by ID.
+func (s *StorageClient) DeleteFile(ctx context.Context, id string) error {
+	return s.c.doRequestJSON(ctx, "DELETE", "/v1/storage/files/"+id, nil, nil)
+}
+
+// GetUsage returns storage usage statistics.
+func (s *StorageClient) GetUsage(ctx context.Context) (*StorageUsageResult, error) {
+	var result StorageUsageResult
+	return &result, s.c.doRequestJSON(ctx, "GET", "/v1/storage/usage", nil, &result)
+}
+
+// ConfigureS3 configures an S3-compatible storage backend.
+func (s *StorageClient) ConfigureS3(ctx context.Context, opts S3Config) error {
+	return s.c.doRequestJSON(ctx, "POST", "/v1/storage/s3", opts, nil)
+}
+
+// TestS3 tests the configured S3 storage connection.
+func (s *StorageClient) TestS3(ctx context.Context) error {
+	return s.c.doRequestJSON(ctx, "POST", "/v1/storage/s3/test", nil, nil)
+}
+
+// ScheduledClient provides access to /v1/scheduled/* endpoints.
+type ScheduledClient struct{ c *Client }
+
+// Create creates a new scheduled screenshot job.
+func (s *ScheduledClient) Create(ctx context.Context, opts ScheduledOptions) (*ScheduledJob, error) {
+	var result ScheduledJob
+	return &result, s.c.doRequestJSON(ctx, "POST", "/v1/scheduled", opts, &result)
+}
+
+// List returns all scheduled jobs.
+func (s *ScheduledClient) List(ctx context.Context) (*ScheduledListResult, error) {
+	var result ScheduledListResult
+	return &result, s.c.doRequestJSON(ctx, "GET", "/v1/scheduled", nil, &result)
+}
+
+// Delete removes a scheduled job by ID.
+func (s *ScheduledClient) Delete(ctx context.Context, id string) error {
+	return s.c.doRequestJSON(ctx, "DELETE", "/v1/scheduled/"+id, nil, nil)
+}
+
+// WebhooksClient provides access to /v1/webhooks/* endpoints.
+type WebhooksClient struct{ c *Client }
+
+// Create registers a new webhook.
+func (w *WebhooksClient) Create(ctx context.Context, opts WebhookOptions) (*Webhook, error) {
+	var result Webhook
+	return &result, w.c.doRequestJSON(ctx, "POST", "/v1/webhooks", opts, &result)
+}
+
+// List returns all registered webhooks.
+func (w *WebhooksClient) List(ctx context.Context) (*WebhooksListResult, error) {
+	var result WebhooksListResult
+	return &result, w.c.doRequestJSON(ctx, "GET", "/v1/webhooks", nil, &result)
+}
+
+// Delete removes a webhook by ID.
+func (w *WebhooksClient) Delete(ctx context.Context, id string) error {
+	return w.c.doRequestJSON(ctx, "DELETE", "/v1/webhooks/"+id, nil, nil)
+}
+
+// KeysClient provides access to /v1/keys/* endpoints.
+type KeysClient struct{ c *Client }
+
+// List returns all API keys.
+func (k *KeysClient) List(ctx context.Context) (*KeysListResult, error) {
+	var result KeysListResult
+	return &result, k.c.doRequestJSON(ctx, "GET", "/v1/keys", nil, &result)
+}
+
+// Create creates a new API key.
+func (k *KeysClient) Create(ctx context.Context, name string) (*APIKey, error) {
+	var result APIKey
+	return &result, k.c.doRequestJSON(ctx, "POST", "/v1/keys", map[string]string{"name": name}, &result)
+}
+
+// Delete revokes an API key by ID.
+func (k *KeysClient) Delete(ctx context.Context, id string) error {
+	return k.c.doRequestJSON(ctx, "DELETE", "/v1/keys/"+id, nil, nil)
 }

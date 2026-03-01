@@ -1,13 +1,11 @@
-# SnapAPI Go SDK
+# snapapi-go
 
-Official Go SDK for [SnapAPI](https://snapapi.pics) — Lightning-fast screenshot, PDF, video, extraction, and AI analysis API.
-
-[![Go Reference](https://pkg.go.dev/badge/github.com/Sleywill/snapapi-go.svg)](https://pkg.go.dev/github.com/Sleywill/snapapi-go)
+Official Go SDK for [SnapAPI](https://snapapi.pics) — lightning-fast screenshot, PDF, scraping, and AI web extraction API.
 
 ## Installation
 
 ```bash
-go get github.com/Sleywill/snapapi-go
+go get github.com/Sleywill/snapapi-go@v2.0.0
 ```
 
 ## Quick Start
@@ -16,348 +14,262 @@ go get github.com/Sleywill/snapapi-go
 package main
 
 import (
-    "log"
+    "context"
+    "fmt"
     "os"
 
     snapapi "github.com/Sleywill/snapapi-go"
 )
 
 func main() {
-    client := snapapi.NewClient("sk_live_xxx")
+    client := snapapi.NewClient("your-api-key")
+    ctx := context.Background()
 
-    data, err := client.Screenshot(snapapi.ScreenshotOptions{
-        URL:    "https://example.com",
-        Format: "png",
-        Width:  1920,
-        Height: 1080,
+    // Take a screenshot
+    img, err := client.Screenshot(ctx, snapapi.ScreenshotOptions{
+        URL:      "https://example.com",
+        Format:   "png",
+        FullPage: true,
     })
     if err != nil {
-        log.Fatal(err)
+        panic(err)
     }
-
-    os.WriteFile("screenshot.png", data, 0644)
+    os.WriteFile("screenshot.png", img, 0644)
+    fmt.Printf("Saved %d bytes\n", len(img))
 }
 ```
 
-## Features
+## Authentication
 
-- **Screenshots** — PNG, JPEG, WebP, AVIF formats with device presets, full page, selectors, dark mode
-- **PDF Generation** — Dedicated endpoint or via screenshot endpoint with full PDF options
-- **Video Capture** — Record webpage videos with scroll animations
-- **Batch Screenshots** — Up to 10 URLs in parallel with status polling
-- **Content Extraction** — HTML, text, markdown, article, links, images, metadata, structured data
-- **AI Analysis** — AI-powered webpage analysis with custom prompts
-- **Async Mode** — Asynchronous screenshots with job polling
-
-## Client Configuration
+Set your API key when creating the client:
 
 ```go
-// Default client
-client := snapapi.NewClient("sk_live_xxx")
-
-// With options
-client := snapapi.NewClient("sk_live_xxx",
-    snapapi.WithBaseURL("https://custom-api.example.com"),
-    snapapi.WithTimeout(120 * time.Second),
-    snapapi.WithHTTPClient(&http.Client{...}),
-)
+client := snapapi.NewClient("sk_live_...")
 ```
 
-## API Reference
-
-### Health Check
+Or use an environment variable:
 
 ```go
-result, err := client.Ping()
-// result.Status == "ok"
+client := snapapi.NewClient(os.Getenv("SNAPAPI_KEY"))
 ```
 
-### Screenshots
+## Endpoints
+
+### Screenshot — `POST /v1/screenshot`
+
+Capture a webpage as PNG, JPEG, WEBP, AVIF, or PDF.
 
 ```go
 // Basic screenshot
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL: "https://example.com",
-})
-
-// All format options
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
+img, err := client.Screenshot(ctx, snapapi.ScreenshotOptions{
     URL:    "https://example.com",
-    Format: "webp", // png, jpeg, webp, avif, pdf
+    Format: "png",
+    Width:  1440,
+    Height: 900,
 })
 
-// Full page
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:      "https://example.com",
-    FullPage: true,
-})
-
-// Device preset
-data, err := client.ScreenshotDevice("https://example.com", snapapi.DeviceIPhone15Pro, nil)
-
-// Element selector
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:      "https://example.com",
-    Selector: "h1",
-})
-
-// Dark mode
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:      "https://example.com",
-    DarkMode: true,
-})
-
-// Custom CSS and JavaScript (Starter+ plan)
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:        "https://example.com",
-    CSS:        "body { background: red; }",
-    JavaScript: "document.title = 'Hello';",
-})
-
-// Block ads, cookies, trackers (Starter+ plan)
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
+// Full-page screenshot with dark mode
+img, err = client.Screenshot(ctx, snapapi.ScreenshotOptions{
     URL:                "https://example.com",
+    FullPage:           true,
+    DarkMode:           true,
     BlockAds:           true,
     BlockCookieBanners: true,
-    BlockTrackers:      true,
-    BlockChatWidgets:   true,
 })
 
-// Wait strategies
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:             "https://example.com",
-    Delay:           1000,
-    WaitForSelector: "h1",
-    WaitUntil:       "networkidle",
-})
-
-// Thumbnail generation
-q := 80
-result, err := client.ScreenshotWithMetadata(snapapi.ScreenshotOptions{
-    URL:       "https://example.com",
-    Quality:   &q,
-    Thumbnail: &snapapi.ThumbnailOptions{Enabled: true, Width: 200, Height: 150},
-})
-
-// JSON response with metadata
-result, err := client.ScreenshotWithMetadata(snapapi.ScreenshotOptions{
-    URL:             "https://example.com",
-    IncludeMetadata: true,
-})
-// result.Width, result.Height, result.Format, result.Metadata
-
-// Base64 response
-data, err := client.Screenshot(snapapi.ScreenshotOptions{
-    URL:          "https://example.com",
-    ResponseType: "base64",
-})
-
-// From HTML content
-data, err := client.ScreenshotFromHTML("<h1>Hello World</h1>", nil)
-
-// From Markdown content
-data, err := client.ScreenshotFromMarkdown("# Hello\n\nThis is **bold**.", nil)
-```
-
-### Available Device Presets
-
-```go
-snapapi.DeviceDesktop1080p       // 1920x1080
-snapapi.DeviceDesktop1440p       // 2560x1440
-snapapi.DeviceDesktop4K          // 3840x2160
-snapapi.DeviceMacBookPro13       // 1440x900 @2x
-snapapi.DeviceMacBookPro16       // 1728x1117 @2x
-snapapi.DeviceIMac24             // 2240x1260 @2x
-snapapi.DeviceIPhoneSE           // 375x667 @2x
-snapapi.DeviceIPhone14Pro        // 393x852 @3x
-snapapi.DeviceIPhone15Pro        // 393x852 @3x
-snapapi.DeviceIPhone15ProMax     // 430x932 @3x
-snapapi.DeviceIPadPro11          // 834x1194 @2x
-snapapi.DevicePixel8Pro          // 448x998 @2.625x
-snapapi.DeviceSamsungGalaxyS24   // 360x780 @3x
-// ... and more
-```
-
-### PDF Generation
-
-```go
-// Via screenshot endpoint
-data, err := client.PDF(snapapi.ScreenshotOptions{
-    URL: "https://example.com",
-})
-os.WriteFile("page.pdf", data, 0644)
-
-// From HTML
-data, err := client.PDFFromHTML("<h1>Invoice</h1><p>Total: $100</p>", &snapapi.PDFOptions{
-    PageSize:  "a4",
-    Landscape: boolPtr(true),
-})
-
-// Dedicated PDF endpoint with full options
-data, err := client.PDFDedicated(snapapi.PDFDedicatedOptions{
-    URL: "https://example.com",
-    PDFOptions: &snapapi.PDFOptions{
-        PageSize:        "a4",
-        Landscape:       boolPtr(true),
-        PrintBackground: boolPtr(true),
-        MarginTop:       "1cm",
-        MarginBottom:    "1cm",
-    },
-})
-```
-
-### Video Capture
-
-```go
-// Basic video
-data, err := client.Video(snapapi.VideoOptions{
-    URL:      "https://example.com",
-    Duration: 5,
-    Width:    1280,
-    Height:   720,
-})
-os.WriteFile("video.mp4", data, 0644)
-
-// Video with scroll animation
-data, err := client.Video(snapapi.VideoOptions{
-    URL:      "https://example.com",
-    Duration: 5,
-    Scroll:   true,
-    ScrollEasing: snapapi.ScrollEasingEaseInOut,
-})
-
-// Video with metadata
-result, err := client.VideoWithResult(snapapi.VideoOptions{
-    URL:      "https://example.com",
-    Duration: 3,
-})
-// result.Width, result.Height, result.Duration, result.FileSize
-```
-
-### Batch Screenshots
-
-```go
-// Submit batch job
-result, err := client.Batch(snapapi.BatchOptions{
-    URLs:   []string{"https://example.com", "https://google.com"},
+// Screenshot from HTML
+img, err = client.Screenshot(ctx, snapapi.ScreenshotOptions{
+    HTML:   "<h1 style='color:red'>Hello!</h1>",
     Format: "png",
 })
-fmt.Println("Job ID:", result.JobID)
 
-// Poll for completion
-for {
-    status, err := client.GetBatchStatus(result.JobID)
-    if err != nil {
-        log.Fatal(err)
-    }
-    if status.Status == "completed" {
-        for _, item := range status.Results {
-            fmt.Printf("%s: %s\n", item.URL, item.Status)
-        }
-        break
-    }
-    time.Sleep(2 * time.Second)
+// PDF generation
+pdf, err := client.PDF(ctx, snapapi.ScreenshotOptions{
+    URL: "https://example.com",
+    PDF: &snapapi.PDFPageOptions{
+        PageSize:  "A4",
+        Landscape: false,
+    },
+})
+
+// Screenshot with storage (returns JSON with id+url)
+result, err := client.ScreenshotToStorage(ctx, snapapi.ScreenshotOptions{
+    URL:    "https://example.com",
+    Format: "png",
+    Storage: &snapapi.StorageDestination{
+        Destination: "s3",
+    },
+})
+fmt.Println(result.URL)
+```
+
+### Scrape — `POST /v1/scrape`
+
+Scrape text, HTML, or links from websites.
+
+```go
+result, err := client.Scrape(ctx, snapapi.ScrapeOptions{
+    URL:   "https://example.com",
+    Type:  "text",  // text|html|links
+    Pages: 3,
+})
+for _, item := range result.Results {
+    fmt.Printf("Page %d: %s\n", item.Page, item.URL)
 }
 ```
 
-### Content Extraction
+### Extract — `POST /v1/extract`
+
+Extract structured content: articles, metadata, links, images.
 
 ```go
-// Extract with options
-result, err := client.Extract(snapapi.ExtractOptions{
-    URL:  "https://example.com",
-    Type: "markdown",
-})
-fmt.Println(result.Content)
+// Article extraction
+article, err := client.ExtractArticle(ctx, "https://example.com/post")
 
-// Convenience methods
-markdown, err := client.ExtractMarkdown("https://example.com")
-text, err := client.ExtractText("https://example.com")
-article, err := client.ExtractArticle("https://example.com")
-links, err := client.ExtractLinks("https://example.com")     // result.Links
-images, err := client.ExtractImages("https://example.com")   // result.Images
-metadata, err := client.ExtractMetadata("https://example.com")
-structured, err := client.ExtractStructured("https://example.com")
+// Markdown extraction
+md, err := client.ExtractMarkdown(ctx, "https://example.com")
+
+// Custom extraction
+result, err := client.Extract(ctx, snapapi.ExtractOptions{
+    URL:           "https://example.com",
+    Type:          "structured",
+    BlockAds:      true,
+    IncludeImages: true,
+    MaxLength:     intPtr(5000),
+})
 ```
 
-### AI Analysis
+### Analyze — `POST /v1/analyze`
+
+AI-powered webpage analysis using OpenAI or Anthropic.
 
 ```go
-result, err := client.Analyze(snapapi.AnalyzeOptions{
-    URL:    "https://example.com",
-    Prompt: "What is this page about? Summarize in 3 bullet points.",
+result, err := client.Analyze(ctx, snapapi.AnalyzeOptions{
+    URL:               "https://example.com",
+    Prompt:            "What is the main purpose of this page?",
+    Provider:          "openai",
+    APIKey:            "sk-...", // your LLM API key
+    IncludeScreenshot: true,
+    IncludeMetadata:   true,
 })
 fmt.Println(result.Analysis)
 ```
 
-### Async Screenshots
+### Storage — `/v1/storage/*`
 
 ```go
-// Submit async job
-result, err := client.ScreenshotAsync(snapapi.ScreenshotOptions{
-    URL: "https://example.com",
+// List stored files
+files, err := client.Storage.ListFiles(ctx)
+
+// Storage usage
+usage, err := client.Storage.GetUsage(ctx)
+fmt.Printf("Used: %d / %d bytes\n", usage.Used, usage.Limit)
+
+// Configure S3
+err = client.Storage.ConfigureS3(ctx, snapapi.S3Config{
+    Bucket:          "my-bucket",
+    Region:          "us-east-1",
+    AccessKeyID:     "AKIA...",
+    SecretAccessKey: "...",
 })
 
-// Poll for result
-for {
-    status, err := client.GetScreenshotStatus(result.JobID)
-    if err != nil {
-        log.Fatal(err)
-    }
-    if status.Status == "completed" {
-        fmt.Printf("Screenshot ready: %dx%d\n", status.Result.Width, status.Result.Height)
-        break
-    }
-    time.Sleep(2 * time.Second)
-}
+// Delete a file
+err = client.Storage.DeleteFile(ctx, "file-id")
 ```
 
-### Usage & Info
+### Scheduled — `/v1/scheduled/*`
 
 ```go
-// API usage
-usage, err := client.GetUsage()
-fmt.Printf("Used: %d/%d (resets %s)\n", usage.Used, usage.Limit, usage.ResetAt)
+// Create hourly screenshot job
+job, err := client.Scheduled.Create(ctx, snapapi.ScheduledOptions{
+    URL:            "https://example.com",
+    CronExpression: "0 * * * *",
+    Format:         "png",
+    FullPage:       true,
+    WebhookURL:     "https://myapp.com/webhook",
+})
 
-// Available devices
-devices, err := client.GetDevices()
-fmt.Printf("%d device presets\n", devices.Total)
+// List all jobs
+jobs, err := client.Scheduled.List(ctx)
 
-// API capabilities
-caps, err := client.GetCapabilities()
-fmt.Println("Version:", caps.Version)
+// Delete a job
+err = client.Scheduled.Delete(ctx, job.ID)
+```
+
+### Webhooks — `/v1/webhooks/*`
+
+```go
+// Register a webhook
+hook, err := client.Webhooks.Create(ctx, snapapi.WebhookOptions{
+    URL:    "https://myapp.com/snapapi-webhook",
+    Events: []string{"screenshot.completed", "scheduled.run"},
+    Secret: "my-secret",
+})
+
+// List all webhooks
+hooks, err := client.Webhooks.List(ctx)
+
+// Delete a webhook
+err = client.Webhooks.Delete(ctx, hook.ID)
+```
+
+### API Keys — `/v1/keys/*`
+
+```go
+// List all keys
+keys, err := client.Keys.List(ctx)
+
+// Create a new key
+key, err := client.Keys.Create(ctx, "production-key")
+fmt.Println(key.Key) // only shown on creation
+
+// Revoke a key
+err = client.Keys.Delete(ctx, key.ID)
+```
+
+## Client Options
+
+```go
+client := snapapi.NewClient(apiKey,
+    snapapi.WithTimeout(120*time.Second),
+    snapapi.WithBaseURL("https://api.snapapi.pics"),
+)
 ```
 
 ## Error Handling
 
 ```go
-data, err := client.Screenshot(snapapi.ScreenshotOptions{URL: "https://example.com"})
+img, err := client.Screenshot(ctx, opts)
 if err != nil {
-    if apiErr, ok := err.(*snapapi.APIError); ok {
-        fmt.Printf("Code: %s\n", apiErr.Code)           // e.g. "RATE_LIMITED"
-        fmt.Printf("Message: %s\n", apiErr.Message)
-        fmt.Printf("Status: %d\n", apiErr.StatusCode)    // e.g. 429
-        fmt.Printf("Retryable: %v\n", apiErr.IsRetryable())
+    var apiErr *snapapi.APIError
+    if errors.As(err, &apiErr) {
+        fmt.Printf("API error %s: %s (HTTP %d)\n", apiErr.Code, apiErr.Message, apiErr.StatusCode)
+        if apiErr.IsRetryable() {
+            // retry with backoff
+        }
     }
+    return err
 }
 ```
 
 ### Error Codes
 
-| Code | Description |
-|------|-------------|
-| `INVALID_URL` | Invalid URL provided |
-| `INVALID_PARAMS` | Invalid parameters |
-| `UNAUTHORIZED` | Invalid API key |
-| `FORBIDDEN` | Feature requires higher plan |
-| `QUOTA_EXCEEDED` | Monthly quota exceeded |
-| `RATE_LIMITED` | Rate limit hit (retryable) |
-| `TIMEOUT` | Request timeout (retryable) |
-| `CAPTURE_FAILED` | Screenshot capture failed |
+| Code | Meaning |
+|------|---------|
+| `INVALID_PARAMS` | Missing or invalid request parameters |
+| `UNAUTHORIZED` | Invalid or missing API key |
+| `FORBIDDEN` | Plan does not include this feature |
+| `RATE_LIMITED` | Too many requests |
+| `TIMEOUT` | Page load timed out |
+| `QUOTA_EXCEEDED` | Monthly quota reached |
+| `CONNECTION_ERROR` | Network error |
+| `SERVER_ERROR` | Upstream server error |
 
-## Complete Test App
+## Running the Example
 
-See [`cmd/test-app/main.go`](cmd/test-app/main.go) for a comprehensive test suite that exercises every SDK method against the live API.
+```bash
+SNAPAPI_KEY=your-key go run examples/basic/main.go
+```
 
 ## License
 
