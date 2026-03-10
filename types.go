@@ -304,3 +304,77 @@ type KeysListResult struct {
 	Success bool     `json:"success"`
 	Keys    []APIKey `json:"keys"`
 }
+
+// ─── Video ────────────────────────────────────────────────────────────────────
+
+// ScrollEasing defines scroll animation easing functions.
+type ScrollEasing string
+
+const (
+	ScrollEasingLinear         ScrollEasing = "linear"
+	ScrollEasingEaseIn         ScrollEasing = "ease_in"
+	ScrollEasingEaseOut        ScrollEasing = "ease_out"
+	ScrollEasingEaseInOut      ScrollEasing = "ease_in_out"
+	ScrollEasingEaseInOutQuint ScrollEasing = "ease_in_out_quint"
+)
+
+// VideoFormat defines the output format for video recordings.
+type VideoFormat string
+
+const (
+	VideoFormatWebM VideoFormat = "webm"
+	VideoFormatMP4  VideoFormat = "mp4"
+	VideoFormatGIF  VideoFormat = "gif"
+)
+
+// VideoOptions represents options for POST /v1/video.
+type VideoOptions struct {
+	URL                string       `json:"url"`
+	Format             VideoFormat  `json:"format,omitempty"`
+	Width              int          `json:"width,omitempty"`
+	Height             int          `json:"height,omitempty"`
+	Duration           int          `json:"duration,omitempty"`
+	FPS                int          `json:"fps,omitempty"`
+	Scrolling          bool         `json:"scrolling,omitempty"`
+	ScrollSpeed        int          `json:"scrollSpeed,omitempty"`
+	ScrollDelay        int          `json:"scrollDelay,omitempty"`
+	ScrollDuration     int          `json:"scrollDuration,omitempty"`
+	ScrollBy           int          `json:"scrollBy,omitempty"`
+	ScrollEasing       ScrollEasing `json:"scrollEasing,omitempty"`
+	ScrollBack         *bool        `json:"scrollBack,omitempty"`
+	ScrollComplete     *bool        `json:"scrollComplete,omitempty"`
+	DarkMode           bool         `json:"darkMode,omitempty"`
+	BlockAds           bool         `json:"blockAds,omitempty"`
+	BlockCookieBanners bool         `json:"blockCookieBanners,omitempty"`
+	Delay              int          `json:"delay,omitempty"`
+	ResponseType       string       `json:"responseType,omitempty"` // binary|base64|json
+}
+
+// VideoResult is returned when ResponseType is "base64" or "json".
+type VideoResult struct {
+	Data     string      `json:"data"`
+	MIMEType string      `json:"mimeType"`
+	Format   VideoFormat `json:"format"`
+	Width    int         `json:"width"`
+	Height   int         `json:"height"`
+	Duration int         `json:"duration"`
+	Size     int         `json:"size"`
+}
+
+// ─── Account Usage ────────────────────────────────────────────────────────────
+
+// AccountUsageResult is returned by GET /v1/usage.
+type AccountUsageResult struct {
+	Used      int    `json:"used"`
+	Limit     int    `json:"limit"`
+	Remaining int    `json:"remaining"`
+	ResetAt   string `json:"resetAt,omitempty"`
+}
+
+// ─── Ping ─────────────────────────────────────────────────────────────────────
+
+// PingResult is returned by GET /v1/ping.
+type PingResult struct {
+	Status    string `json:"status"`
+	Timestamp int64  `json:"timestamp"`
+}

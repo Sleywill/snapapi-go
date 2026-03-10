@@ -157,6 +157,58 @@ func (c *Client) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalyzeResu
 	return &result, nil
 }
 
+
+// Video records a video of a live webpage.
+//
+// Returns raw video bytes when opts.ResponseType is "" or "binary".
+// Returns a VideoResult when opts.ResponseType is "base64" or "json".
+func (c *Client) Video(ctx context.Context, opts VideoOptions) ([]byte, error) {
+	if opts.URL == "" {
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
+	}
+	return c.doRequest(ctx, "POST", "/v1/video", opts)
+}
+
+// VideoToResult records a video and returns structured VideoResult metadata.
+func (c *Client) VideoToResult(ctx context.Context, opts VideoOptions) (*VideoResult, error) {
+	opts.ResponseType = "json"
+	data, err := c.doRequest(ctx, "POST", "/v1/video", opts)
+	if err != nil {
+		return nil, err
+	}
+	var result VideoResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse video result: %w", err)
+	}
+	return &result, nil
+}
+
+// Ping checks API availability.
+func (c *Client) Ping(ctx context.Context) (*PingResult, error) {
+	data, err := c.doRequest(ctx, "GET", "/v1/ping", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result PingResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse ping result: %w", err)
+	}
+	return &result, nil
+}
+
+// Usage returns account-level API usage for the current billing period.
+func (c *Client) Usage(ctx context.Context) (*AccountUsageResult, error) {
+	data, err := c.doRequest(ctx, "GET", "/v1/usage", nil)
+	if err != nil {
+		return nil, err
+	}
+	var result AccountUsageResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse usage result: %w", err)
+	}
+	return &result, nil
+}
+
 // ─── Convenience helpers ──────────────────────────────────────────────────────
 
 // PDF generates a PDF (sets Format = "pdf").
