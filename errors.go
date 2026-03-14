@@ -2,10 +2,13 @@ package snapapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 )
 
-// Error code constants.
+// Error code constants returned in APIError.Code.
 const (
 	ErrInvalidParams   = "INVALID_PARAMS"
 	ErrUnauthorized    = "UNAUTHORIZED"
@@ -18,27 +21,72 @@ const (
 	ErrServerError     = "SERVER_ERROR"
 )
 
-// APIError represents a structured error returned by the SnapAPI.
+// APIError is the structured error type returned by every Client method.
+//
+// Use errors.As to access the fields:
+//
+//	var apiErr *snapapi.APIError
+//	if errors.As(err, &apiErr) {
+//	    switch apiErr.Code {
+//	    case snapapi.ErrRateLimited:
+//	        time.Sleep(time.Duration(apiErr.RetryAfter) * time.Second)
+//	    case snapapi.ErrUnauthorized:
+//	        log.Fatal("check your API key")
+//	    }
+//	}
 type APIError struct {
-	Code       string                   `json:"code"`
-	Message    string                   `json:"message"`
-	StatusCode int                      `json:"statusCode"`
-	Details    []map[string]interface{} `json:"details,omitempty"`
+	// Code is a machine-readable error identifier (one of the Err* constants).
+	Code string `json:"code"`
+	// Message is a human-readable description of the error.
+	Message string `json:"message"`
+	// StatusCode is the HTTP status code (e.g. 401, 429, 500).
+	StatusCode int `json:"statusCode"`
+	// RetryAfter is the number of seconds to wait before retrying (from the
+	// Retry-After header). Zero means no hint was provided.
+	RetryAfter int `json:"retryAfter,omitempty"`
+	// Details holds any additional error detail objects returned by the API.
+	Details []map[string]interface{} `json:"details,omitempty"`
 }
 
+// Error implements the error interface.
 func (e *APIError) Error() string {
 	if len(e.Details) > 0 {
 		return fmt.Sprintf("[%s] %s (HTTP %d): %v", e.Code, e.Message, e.StatusCode, e.Details)
 	}
-	return fmt.Sprintf("[%s] %s (HTTP %d)", e.Code, e.Message, e.StatusCode)
+	if e.StatusCode > 0 {
+		return fmt.Sprintf("[%s] %s (HTTP %d)", e.Code, e.Message, e.StatusCode)
+	}
+	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// IsRetryable reports whether the error may succeed on retry.
-func (e *APIError) IsRetryable() bool {
-	return e.Code == ErrRateLimited || e.Code == ErrTimeout || e.StatusCode >= 500
+// IsRateLimited reports whether the error is a rate-limit (429) response.
+func (e *APIError) IsRateLimited() bool { return e.Code == ErrRateLimited }
+
+// IsUnauthorized reports whether the error is an auth failure (401/403).
+func (e *APIError) IsUnauthorized() bool {
+	return e.Code == ErrUnauthorized || e.Code == ErrForbidden
 }
 
-// rawAPIError is the JSON shape returned by the API on errors.
+// IsServerError reports whether the error is a 5xx server-side failure.
+func (e *APIError) IsServerError() bool { return e.StatusCode >= 500 }
+
+// isRetryable reports whether err may succeed on a subsequent attempt and
+// populates apiErr if the error is an *APIError.
+func isRetryable(err error, apiErr **APIError) bool {
+	var ae *APIError
+	if errors.As(err, &ae) {
+		if apiErr != nil {
+			*apiErr = ae
+		}
+		return ae.Code == ErrRateLimited || ae.Code == ErrTimeout || ae.StatusCode >= 500
+	}
+	// Network-level errors (no HTTP status) are always retryable.
+	return true
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+// rawAPIError matches the JSON shape the SnapAPI server returns on errors.
 type rawAPIError struct {
 	StatusCode int                      `json:"statusCode"`
 	Error      string                   `json:"error"`
@@ -46,8 +94,9 @@ type rawAPIError struct {
 	Details    []map[string]interface{} `json:"details,omitempty"`
 }
 
-// parseAPIError builds an *APIError from a raw response body and HTTP status code.
-func parseAPIError(body []byte, statusCode int) *APIError {
+// parseAPIError builds an *APIError from a raw response body, HTTP status code,
+// and response headers (used to extract Retry-After).
+func parseAPIError(body []byte, statusCode int, headers http.Header) *APIError {
 	var raw rawAPIError
 	if err := json.Unmarshal(body, &raw); err != nil || raw.Message == "" {
 		return &APIError{
@@ -57,22 +106,29 @@ func parseAPIError(body []byte, statusCode int) *APIError {
 		}
 	}
 
-	code := mapCode(raw.Error, statusCode)
-	return &APIError{
-		Code:       code,
+	ae := &APIError{
+		Code:       mapErrorCode(raw.Error, statusCode),
 		Message:    raw.Message,
 		StatusCode: statusCode,
 		Details:    raw.Details,
 	}
+
+	// Parse Retry-After header (seconds or HTTP-date; we handle seconds only).
+	if ra := headers.Get("Retry-After"); ra != "" {
+		if n, err := strconv.Atoi(ra); err == nil {
+			ae.RetryAfter = n
+		}
+	}
+	return ae
 }
 
-func mapCode(errType string, statusCode int) string {
+func mapErrorCode(errType string, statusCode int) string {
 	switch statusCode {
-	case 401:
+	case http.StatusUnauthorized:
 		return ErrUnauthorized
-	case 403:
+	case http.StatusForbidden:
 		return ErrForbidden
-	case 429:
+	case http.StatusTooManyRequests:
 		return ErrRateLimited
 	}
 	switch errType {
