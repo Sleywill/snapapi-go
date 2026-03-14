@@ -354,11 +354,6 @@ func isAPIError(err error, out **snapapi.APIError) bool {
 
 // isAs wraps the standard errors.As pattern to avoid an import cycle.
 func isAs(err error, target interface{}) bool {
-	type asInterface interface {
-		As(interface{}) bool
-	}
-	// Use the standard library directly.
-	type errorsAsFunc func(error, interface{}) bool
 	// Inline the check using a type assertion chain.
 	type unwrapper interface{ Unwrap() error }
 	for err != nil {
