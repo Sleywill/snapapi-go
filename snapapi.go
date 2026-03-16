@@ -1,7 +1,8 @@
 // Package snapapi provides an idiomatic Go client for the SnapAPI.pics service.
 //
-// SnapAPI lets you capture screenshots, generate PDFs, scrape web pages, and
-// extract structured content from URLs — all via a simple HTTP API.
+// SnapAPI lets you capture screenshots, generate PDFs, scrape web pages,
+// extract structured content, and analyze pages with LLMs — all via a simple
+// HTTP API.
 //
 // # Quick start
 //
@@ -37,14 +38,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
 const (
-	defaultBaseURL = "https://snapapi.pics"
+	defaultBaseURL = "https://api.snapapi.pics"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
-	userAgent      = "snapapi-go/3.0.0"
+	userAgent      = "snapapi-go/2.1.0"
 )
 
 // Client is the SnapAPI client. Create one with New().
@@ -119,13 +121,67 @@ func New(apiKey string, opts ...Option) *Client {
 	return c
 }
 
-// NewClient is an alias for New, kept for compatibility.
+// NewClient is an alias for New, kept for backward compatibility.
 func NewClient(apiKey string, opts ...Option) *Client {
 	return New(apiKey, opts...)
 }
 
+// ---------------------------------------------------------------------------
+// Screenshot
+// ---------------------------------------------------------------------------
+
+// ScreenshotParams holds all parameters for the Screenshot endpoint.
+type ScreenshotParams struct {
+	// URL of the page to capture. Required.
+	URL string `json:"url"`
+	// Format is the output image format: "png" (default), "jpeg", "webp", or "pdf".
+	Format string `json:"format,omitempty"`
+	// Width of the viewport in pixels. Default: 1280.
+	Width int `json:"width,omitempty"`
+	// Height of the viewport in pixels.
+	Height int `json:"height,omitempty"`
+	// FullPage captures the entire scrollable page. Default: false.
+	FullPage bool `json:"full_page,omitempty"`
+	// Delay is the time in milliseconds to wait after page load.
+	Delay int `json:"delay,omitempty"`
+	// Quality sets JPEG/WebP compression quality (1-100). Default: 85.
+	Quality int `json:"quality,omitempty"`
+	// Scale is the device scale factor. Default: 1.
+	Scale float64 `json:"scale,omitempty"`
+	// BlockAds enables ad blocking. Default: false.
+	BlockAds bool `json:"block_ads,omitempty"`
+	// WaitForSelector waits for this CSS selector to appear before capturing.
+	WaitForSelector string `json:"wait_for_selector,omitempty"`
+	// Clip captures only the specified rectangular region.
+	Clip *ClipRegion `json:"clip,omitempty"`
+	// ScrollY scrolls the page by this many pixels before capturing.
+	ScrollY int `json:"scroll_y,omitempty"`
+	// CustomCSS is injected into the page before capturing.
+	CustomCSS string `json:"custom_css,omitempty"`
+	// CustomJS is executed on the page before capturing.
+	CustomJS string `json:"custom_js,omitempty"`
+	// Headers are additional HTTP headers sent when loading the page.
+	Headers map[string]string `json:"headers,omitempty"`
+	// UserAgent overrides the browser's User-Agent string.
+	UserAgent string `json:"user_agent,omitempty"`
+	// Proxy routes the browser request through this proxy URL.
+	Proxy string `json:"proxy,omitempty"`
+	// AccessKey is an alternative authentication method via query parameter.
+	AccessKey string `json:"access_key,omitempty"`
+	// Selector captures only the element matching this CSS selector.
+	Selector string `json:"selector,omitempty"`
+}
+
+// ClipRegion defines a rectangular region for clipping screenshots.
+type ClipRegion struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"w"`
+	Height int `json:"h"`
+}
+
 // Screenshot captures a screenshot of a URL.
-// Returns raw image bytes (PNG or JPEG depending on Params.Format).
+// Returns raw image bytes (PNG, JPEG, WebP, or PDF depending on Params.Format).
 //
 //	img, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
 //	    URL:      "https://example.com",
@@ -139,31 +195,60 @@ func (c *Client) Screenshot(ctx context.Context, p ScreenshotParams) ([]byte, er
 	return c.doRaw(ctx, http.MethodPost, "/v1/screenshot", p)
 }
 
-// ScreenshotParams holds parameters for Screenshot.
-type ScreenshotParams struct {
-	// URL of the page to capture. Required.
+// ScreenshotToFile captures a screenshot and writes it directly to a file.
+// The file is created with mode 0644. Returns the number of bytes written.
+//
+//	n, err := client.ScreenshotToFile(ctx, "output.png", snapapi.ScreenshotParams{
+//	    URL:    "https://example.com",
+//	    Format: "png",
+//	})
+func (c *Client) ScreenshotToFile(ctx context.Context, filename string, p ScreenshotParams) (int, error) {
+	data, err := c.Screenshot(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return 0, fmt.Errorf("snapapi: write file %q: %w", filename, err)
+	}
+	return len(data), nil
+}
+
+// ---------------------------------------------------------------------------
+// Scrape
+// ---------------------------------------------------------------------------
+
+// ScrapeParams holds all parameters for the Scrape endpoint.
+type ScrapeParams struct {
+	// URL of the page to scrape. Required.
 	URL string `json:"url"`
-	// Format is the output image format: "png" (default) or "jpeg".
-	Format string `json:"format,omitempty"`
-	// Width of the viewport in pixels. Default: 1280.
-	Width int `json:"width,omitempty"`
-	// Height of the viewport in pixels. Default: 720.
-	Height int `json:"height,omitempty"`
-	// FullPage captures the entire scrollable page. Default: false.
-	FullPage bool `json:"full_page,omitempty"`
-	// Wait is additional time in milliseconds to wait after page load.
-	Wait int `json:"wait,omitempty"`
-	// Delay is an alias for Wait (some API versions use this field name).
-	Delay int `json:"delay,omitempty"`
-	// Quality sets JPEG compression quality (1–100). Only for format="jpeg".
-	Quality int `json:"quality,omitempty"`
-	// Selector captures only the element matching this CSS selector.
+	// Selector is a CSS selector to scope scraping to a subtree.
 	Selector string `json:"selector,omitempty"`
+	// Format is the output format: "html" (default), "text", or "json".
+	Format string `json:"format,omitempty"`
+	// WaitForSelector waits for this CSS selector to appear before scraping.
+	WaitForSelector string `json:"wait_for_selector,omitempty"`
+	// Headers are additional HTTP headers sent when loading the page.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Proxy routes the browser request through this proxy URL.
+	Proxy string `json:"proxy,omitempty"`
+	// AccessKey is an alternative authentication method via query parameter.
+	AccessKey string `json:"access_key,omitempty"`
+}
+
+// ScrapeResult is the structured response from the scrape endpoint.
+type ScrapeResult struct {
+	// Data contains the scraped content (HTML, text, or JSON string).
+	Data string `json:"data"`
+	// URL is the final URL after any redirects.
+	URL string `json:"url"`
+	// Status is the HTTP status code of the scraped page.
+	Status int `json:"status"`
 }
 
 // Scrape fetches text or structured content from a URL.
 //
 //	data, err := client.Scrape(ctx, snapapi.ScrapeParams{URL: "https://example.com"})
+//	fmt.Println(data.Data)
 func (c *Client) Scrape(ctx context.Context, p ScrapeParams) (*ScrapeResult, error) {
 	if p.URL == "" {
 		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
@@ -175,24 +260,40 @@ func (c *Client) Scrape(ctx context.Context, p ScrapeParams) (*ScrapeResult, err
 	return &result, nil
 }
 
-// ScrapeParams holds parameters for Scrape.
-type ScrapeParams struct {
-	// URL of the page to scrape. Required.
+// ---------------------------------------------------------------------------
+// Extract
+// ---------------------------------------------------------------------------
+
+// ExtractParams holds all parameters for the Extract endpoint.
+type ExtractParams struct {
+	// URL of the page to extract content from. Required.
 	URL string `json:"url"`
-	// Selector is a CSS selector to scope scraping to a subtree.
+	// Format is the output format: "markdown" (default), "text", or "json".
+	Format string `json:"format,omitempty"`
+	// IncludeLinks includes hyperlinks in the output. Default: true.
+	IncludeLinks *bool `json:"include_links,omitempty"`
+	// IncludeImages includes image references in the output. Default: false.
+	IncludeImages *bool `json:"include_images,omitempty"`
+	// Selector scopes extraction to this CSS selector.
 	Selector string `json:"selector,omitempty"`
-	// Wait is milliseconds to wait after page load before scraping.
-	Wait int `json:"wait,omitempty"`
+	// WaitForSelector waits for this CSS selector to appear before extracting.
+	WaitForSelector string `json:"wait_for_selector,omitempty"`
+	// Headers are additional HTTP headers sent when loading the page.
+	Headers map[string]string `json:"headers,omitempty"`
+	// Proxy routes the browser request through this proxy URL.
+	Proxy string `json:"proxy,omitempty"`
+	// AccessKey is an alternative authentication method via query parameter.
+	AccessKey string `json:"access_key,omitempty"`
 }
 
-// ScrapeResult is the structured response from the scrape endpoint.
-type ScrapeResult struct {
-	Success bool   `json:"success"`
-	URL     string `json:"url"`
-	// HTML is the raw HTML of the scraped page or element.
-	HTML string `json:"html,omitempty"`
-	// Text is the plain-text content.
-	Text string `json:"text,omitempty"`
+// ExtractResult is the structured response from the extract endpoint.
+type ExtractResult struct {
+	// Content is the extracted text (markdown, plain text, or JSON).
+	Content string `json:"content"`
+	// URL is the final URL after any redirects.
+	URL string `json:"url"`
+	// WordCount is the approximate number of words in the extracted content.
+	WordCount int `json:"word_count"`
 }
 
 // Extract extracts readable content from a URL, suitable for LLM consumption.
@@ -201,6 +302,7 @@ type ScrapeResult struct {
 //	    URL:    "https://example.com",
 //	    Format: "markdown",
 //	})
+//	fmt.Println(content.Content)
 func (c *Client) Extract(ctx context.Context, p ExtractParams) (*ExtractResult, error) {
 	if p.URL == "" {
 		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
@@ -212,23 +314,65 @@ func (c *Client) Extract(ctx context.Context, p ExtractParams) (*ExtractResult, 
 	return &result, nil
 }
 
-// ExtractParams holds parameters for Extract.
-type ExtractParams struct {
-	// URL of the page to extract content from. Required.
+// ---------------------------------------------------------------------------
+// Analyze
+// ---------------------------------------------------------------------------
+
+// AnalyzeParams holds all parameters for the Analyze endpoint.
+type AnalyzeParams struct {
+	// URL of the page to analyze. Required.
 	URL string `json:"url"`
-	// Format is the output format: "markdown", "text", or "json".
-	Format string `json:"format,omitempty"`
-	// Wait is milliseconds to wait after page load.
-	Wait int `json:"wait,omitempty"`
+	// Prompt is the instruction for the LLM (e.g. "Summarize this page").
+	Prompt string `json:"prompt,omitempty"`
+	// Provider is the LLM provider: "openai", "anthropic", or "google".
+	Provider string `json:"provider,omitempty"`
+	// APIKey is the LLM provider API key.
+	APIKey string `json:"apiKey,omitempty"`
+	// JSONSchema constrains the LLM output to match a JSON schema.
+	JSONSchema map[string]interface{} `json:"jsonSchema,omitempty"`
 }
 
-// ExtractResult is the structured response from the extract endpoint.
-type ExtractResult struct {
-	Success      bool   `json:"success"`
-	URL          string `json:"url"`
-	Format       string `json:"format"`
-	Content      string `json:"content"`
-	ResponseTime int    `json:"responseTime"`
+// AnalyzeResult is the structured response from the analyze endpoint.
+type AnalyzeResult struct {
+	// Result is the LLM's analysis output.
+	Result string `json:"result"`
+	// URL is the analyzed URL.
+	URL string `json:"url"`
+}
+
+// Analyze sends a page to an LLM for analysis.
+// Note: This endpoint may return HTTP 503 if LLM credits are exhausted.
+//
+//	result, err := client.Analyze(ctx, snapapi.AnalyzeParams{
+//	    URL:      "https://example.com",
+//	    Prompt:   "Summarize this page in 3 sentences.",
+//	    Provider: "openai",
+//	    APIKey:   "sk-...",
+//	})
+//	fmt.Println(result.Result)
+func (c *Client) Analyze(ctx context.Context, p AnalyzeParams) (*AnalyzeResult, error) {
+	if p.URL == "" {
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
+	}
+	var result AnalyzeResult
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/analyze", p, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// PDF
+// ---------------------------------------------------------------------------
+
+// PDFParams holds parameters for PDF generation.
+type PDFParams struct {
+	// URL of the page to convert. Required.
+	URL string `json:"url"`
+	// Format is the paper size: "a4" (default) or "letter".
+	Format string `json:"format,omitempty"`
+	// Margin sets page margins (e.g. "10mm", "1cm").
+	Margin string `json:"margin,omitempty"`
 }
 
 // PDF generates a PDF of a URL.
@@ -241,25 +385,9 @@ func (c *Client) PDF(ctx context.Context, p PDFParams) ([]byte, error) {
 	return c.doRaw(ctx, http.MethodPost, "/v1/pdf", p)
 }
 
-// PDFParams holds parameters for PDF generation.
-type PDFParams struct {
-	// URL of the page to convert. Required.
-	URL string `json:"url"`
-	// Format is the paper size: "a4" (default) or "letter".
-	Format string `json:"format,omitempty"`
-	// Margin sets page margins (e.g. "10mm", "1cm").
-	Margin string `json:"margin,omitempty"`
-}
-
-// Video records a short video of a URL.
-//
-//	videoBytes, err := client.Video(ctx, snapapi.VideoParams{URL: "https://example.com"})
-func (c *Client) Video(ctx context.Context, p VideoParams) ([]byte, error) {
-	if p.URL == "" {
-		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
-	}
-	return c.doRaw(ctx, http.MethodPost, "/v1/video", p)
-}
+// ---------------------------------------------------------------------------
+// Video
+// ---------------------------------------------------------------------------
 
 // VideoParams holds parameters for video recording.
 type VideoParams struct {
@@ -275,27 +403,43 @@ type VideoParams struct {
 	Height int `json:"height,omitempty"`
 }
 
-// Quota returns the caller's current API quota usage.
+// Video records a short video of a URL.
 //
-//	q, err := client.Quota(ctx)
-//	fmt.Printf("Used: %d / %d\n", q.Used, q.Total)
-func (c *Client) Quota(ctx context.Context) (*QuotaResult, error) {
-	var result QuotaResult
-	if err := c.doJSON(ctx, http.MethodGet, "/v1/quota", nil, &result); err != nil {
-		return nil, err
+//	videoBytes, err := client.Video(ctx, snapapi.VideoParams{URL: "https://example.com"})
+func (c *Client) Video(ctx context.Context, p VideoParams) ([]byte, error) {
+	if p.URL == "" {
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-	return &result, nil
+	return c.doRaw(ctx, http.MethodPost, "/v1/video", p)
 }
 
-// QuotaResult is the response from GET /v1/quota.
-type QuotaResult struct {
+// ---------------------------------------------------------------------------
+// Usage
+// ---------------------------------------------------------------------------
+
+// UsageResult is the response from GET /v1/usage.
+type UsageResult struct {
 	Used      int    `json:"used"`
 	Total     int    `json:"total"`
 	Remaining int    `json:"remaining"`
 	ResetAt   string `json:"resetAt,omitempty"`
 }
 
-// ─── Internal transport ───────────────────────────────────────────────────────
+// GetUsage returns the caller's current API usage statistics.
+//
+//	usage, err := client.GetUsage(ctx)
+//	fmt.Printf("Used: %d / %d\n", usage.Used, usage.Total)
+func (c *Client) GetUsage(ctx context.Context) (*UsageResult, error) {
+	var result UsageResult
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/usage", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Internal transport
+// ---------------------------------------------------------------------------
 
 // doRaw executes a request and returns the raw response body.
 // Retries on transient errors with exponential back-off.
@@ -368,7 +512,7 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, body interf
 	if err != nil {
 		return nil, fmt.Errorf("snapapi: build request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("X-Api-Key", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 

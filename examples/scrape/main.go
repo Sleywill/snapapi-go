@@ -25,12 +25,13 @@ func main() {
 	ctx := context.Background()
 
 	result, err := client.Scrape(ctx, snapapi.ScrapeParams{
-		URL: "https://example.com",
+		URL:    "https://example.com",
+		Format: "html",
 	})
 	if err != nil {
 		log.Fatalf("Scrape failed: %v", err)
 	}
 
-	fmt.Printf("Scraped URL: %s\n", result.URL)
-	fmt.Printf("Text (%d chars):\n%s\n", len(result.Text), result.Text)
+	fmt.Printf("Scraped URL: %s (status %d)\n", result.URL, result.Status)
+	fmt.Printf("Data (%d chars):\n%s\n", len(result.Data), result.Data)
 }

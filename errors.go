@@ -19,6 +19,7 @@ const (
 	ErrCaptureFailed   = "CAPTURE_FAILED"
 	ErrConnectionError = "CONNECTION_ERROR"
 	ErrServerError     = "SERVER_ERROR"
+	ErrServiceDown     = "SERVICE_UNAVAILABLE"
 )
 
 // APIError is the structured error type returned by every Client method.
@@ -70,6 +71,10 @@ func (e *APIError) IsUnauthorized() bool {
 // IsServerError reports whether the error is a 5xx server-side failure.
 func (e *APIError) IsServerError() bool { return e.StatusCode >= 500 }
 
+// IsServiceUnavailable reports whether the error is a 503 (e.g. LLM credits
+// exhausted on the analyze endpoint).
+func (e *APIError) IsServiceUnavailable() bool { return e.StatusCode == 503 }
+
 // isRetryable reports whether err may succeed on a subsequent attempt and
 // populates apiErr if the error is an *APIError.
 func isRetryable(err error, apiErr **APIError) bool {
@@ -83,8 +88,6 @@ func isRetryable(err error, apiErr **APIError) bool {
 	// Network-level errors (no HTTP status) are always retryable.
 	return true
 }
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
 
 // rawAPIError matches the JSON shape the SnapAPI server returns on errors.
 type rawAPIError struct {
@@ -130,6 +133,8 @@ func mapErrorCode(errType string, statusCode int) string {
 		return ErrForbidden
 	case http.StatusTooManyRequests:
 		return ErrRateLimited
+	case http.StatusServiceUnavailable:
+		return ErrServiceDown
 	}
 	switch errType {
 	case "Validation Error":

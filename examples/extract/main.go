@@ -32,6 +32,5 @@ func main() {
 		log.Fatalf("Extract failed: %v", err)
 	}
 
-	fmt.Printf("Extracted (format=%s, %dms):\n\n%s\n",
-		result.Format, result.ResponseTime, result.Content)
+	fmt.Printf("Extracted (%d words):\n\n%s\n", result.WordCount, result.Content)
 }

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +40,15 @@ func binaryHandler(statusCode int, data []byte) http.HandlerFunc {
 	}
 }
 
-// ─── Screenshot ───────────────────────────────────────────────────────────────
+// assertAuthHeader checks that X-Api-Key is set correctly.
+func assertAuthHeader(t *testing.T, r *http.Request) {
+	t.Helper()
+	if key := r.Header.Get("X-Api-Key"); key != "test-key" {
+		t.Errorf("expected X-Api-Key=test-key, got %q", key)
+	}
+}
+
+// --- Screenshot ---
 
 func TestScreenshot_Success(t *testing.T) {
 	want := []byte("\x89PNG fake image bytes")
@@ -49,9 +59,7 @@ func TestScreenshot_Success(t *testing.T) {
 		if r.URL.Path != "/v1/screenshot" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if auth := r.Header.Get("Authorization"); auth != "Bearer test-key" {
-			t.Errorf("unexpected Authorization header: %q", auth)
-		}
+		assertAuthHeader(t, r)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(want)
 	}))
@@ -67,6 +75,44 @@ func TestScreenshot_Success(t *testing.T) {
 	}
 	if string(got) != string(want) {
 		t.Errorf("Screenshot() body mismatch: got %q, want %q", got, want)
+	}
+}
+
+func TestScreenshot_FullParams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["url"] != "https://example.com" {
+			t.Errorf("unexpected url: %v", body["url"])
+		}
+		if body["full_page"] != true {
+			t.Errorf("expected full_page=true")
+		}
+		if body["block_ads"] != true {
+			t.Errorf("expected block_ads=true")
+		}
+		if body["custom_css"] != "body { background: red; }" {
+			t.Errorf("unexpected custom_css: %v", body["custom_css"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{
+		URL:       "https://example.com",
+		Format:    "png",
+		FullPage:  true,
+		Width:     1920,
+		Height:    1080,
+		BlockAds:  true,
+		CustomCSS: "body { background: red; }",
+		Scale:     2.0,
+		Headers:   map[string]string{"X-Custom": "value"},
+	})
+	if err != nil {
+		t.Fatalf("Screenshot() error: %v", err)
 	}
 }
 
@@ -152,13 +198,42 @@ func TestScreenshot_ServerError(t *testing.T) {
 	}
 }
 
-// ─── Scrape ───────────────────────────────────────────────────────────────────
+// --- ScreenshotToFile ---
+
+func TestScreenshotToFile_Success(t *testing.T) {
+	want := []byte("\x89PNG fake image bytes")
+	srv := httptest.NewServer(binaryHandler(200, want))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.png")
+
+	n, err := client.ScreenshotToFile(context.Background(), path, snapapi.ScreenshotParams{
+		URL: "https://example.com",
+	})
+	if err != nil {
+		t.Fatalf("ScreenshotToFile() error: %v", err)
+	}
+	if n != len(want) {
+		t.Errorf("expected %d bytes written, got %d", len(want), n)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error: %v", err)
+	}
+	if string(data) != string(want) {
+		t.Errorf("file content mismatch")
+	}
+}
+
+// --- Scrape ---
 
 func TestScrape_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"success": true,
-		"url":     "https://example.com",
-		"text":    "Hello world",
+		"data":   "<html>Hello</html>",
+		"url":    "https://example.com",
+		"status": 200,
 	}))
 	defer srv.Close()
 
@@ -167,11 +242,11 @@ func TestScrape_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scrape() error: %v", err)
 	}
-	if !result.Success {
-		t.Error("expected Success=true")
+	if result.Data != "<html>Hello</html>" {
+		t.Errorf("unexpected data: %q", result.Data)
 	}
-	if result.Text != "Hello world" {
-		t.Errorf("unexpected text: %q", result.Text)
+	if result.Status != 200 {
+		t.Errorf("expected status=200, got %d", result.Status)
 	}
 }
 
@@ -183,15 +258,13 @@ func TestScrape_MissingURL(t *testing.T) {
 	}
 }
 
-// ─── Extract ─────────────────────────────────────────────────────────────────
+// --- Extract ---
 
 func TestExtract_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"success":      true,
-		"url":          "https://example.com",
-		"format":       "markdown",
-		"content":      "# Hello\n\nWorld.",
-		"responseTime": 123,
+		"content":    "# Hello\n\nWorld.",
+		"url":        "https://example.com",
+		"word_count": 2,
 	}))
 	defer srv.Close()
 
@@ -206,9 +279,63 @@ func TestExtract_Success(t *testing.T) {
 	if result.Content == "" {
 		t.Error("expected non-empty Content")
 	}
+	if result.WordCount != 2 {
+		t.Errorf("expected word_count=2, got %d", result.WordCount)
+	}
 }
 
-// ─── PDF ─────────────────────────────────────────────────────────────────────
+// --- Analyze ---
+
+func TestAnalyze_Success(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
+		"result": "This is a test page.",
+		"url":    "https://example.com",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	result, err := client.Analyze(context.Background(), snapapi.AnalyzeParams{
+		URL:      "https://example.com",
+		Prompt:   "Summarize this page.",
+		Provider: "openai",
+		APIKey:   "sk-test",
+	})
+	if err != nil {
+		t.Fatalf("Analyze() error: %v", err)
+	}
+	if result.Result != "This is a test page." {
+		t.Errorf("unexpected result: %q", result.Result)
+	}
+}
+
+func TestAnalyze_ServiceUnavailable(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(503, map[string]interface{}{
+		"statusCode": 503,
+		"error":      "Service Unavailable",
+		"message":    "LLM credits exhausted",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Analyze(context.Background(), snapapi.AnalyzeParams{URL: "https://example.com"})
+	var apiErr *snapapi.APIError
+	if !isAPIError(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if !apiErr.IsServiceUnavailable() {
+		t.Error("expected IsServiceUnavailable() true")
+	}
+}
+
+func TestAnalyze_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Analyze(context.Background(), snapapi.AnalyzeParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
+	}
+}
+
+// --- PDF ---
 
 func TestPDF_Success(t *testing.T) {
 	pdfHeader := []byte("%PDF-1.4 fake")
@@ -225,31 +352,42 @@ func TestPDF_Success(t *testing.T) {
 	}
 }
 
-// ─── Quota ───────────────────────────────────────────────────────────────────
+// --- Usage ---
 
-func TestQuota_Success(t *testing.T) {
-	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"used":      42,
-		"total":     1000,
-		"remaining": 958,
-		"resetAt":   "2026-04-01T00:00:00Z",
+func TestGetUsage_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/usage" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		assertAuthHeader(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"used":      42,
+			"total":     1000,
+			"remaining": 958,
+			"resetAt":   "2026-04-01T00:00:00Z",
+		})
 	}))
 	defer srv.Close()
 
 	client := newTestClient(t, srv)
-	q, err := client.Quota(context.Background())
+	u, err := client.GetUsage(context.Background())
 	if err != nil {
-		t.Fatalf("Quota() error: %v", err)
+		t.Fatalf("GetUsage() error: %v", err)
 	}
-	if q.Used != 42 {
-		t.Errorf("expected Used=42, got %d", q.Used)
+	if u.Used != 42 {
+		t.Errorf("expected Used=42, got %d", u.Used)
 	}
-	if q.Total != 1000 {
-		t.Errorf("expected Total=1000, got %d", q.Total)
+	if u.Total != 1000 {
+		t.Errorf("expected Total=1000, got %d", u.Total)
 	}
 }
 
-// ─── Retry logic ─────────────────────────────────────────────────────────────
+// --- Retry logic ---
 
 func TestRetry_EventualSuccess(t *testing.T) {
 	calls := 0
@@ -339,7 +477,30 @@ func TestRetry_NoRetryOn4xx(t *testing.T) {
 	}
 }
 
-// ─── Error helpers ────────────────────────────────────────────────────────────
+// --- Context cancellation ---
+
+func TestContextCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	client := snapapi.New("test-key",
+		snapapi.WithBaseURL(srv.URL),
+		snapapi.WithRetries(0),
+		snapapi.WithTimeout(10*time.Second),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Screenshot(ctx, snapapi.ScreenshotParams{URL: "https://example.com"})
+	if err == nil {
+		t.Fatal("expected context deadline error")
+	}
+}
+
+// --- Error helpers ---
 
 func isAPIError(err error, out **snapapi.APIError) bool {
 	var ae *snapapi.APIError
@@ -352,9 +513,7 @@ func isAPIError(err error, out **snapapi.APIError) bool {
 	return false
 }
 
-// isAs wraps the standard errors.As pattern to avoid an import cycle.
 func isAs(err error, target interface{}) bool {
-	// Inline the check using a type assertion chain.
 	type unwrapper interface{ Unwrap() error }
 	for err != nil {
 		if tryAs(err, target) {

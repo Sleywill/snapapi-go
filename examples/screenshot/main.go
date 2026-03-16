@@ -25,6 +25,7 @@ func main() {
 
 	ctx := context.Background()
 
+	// Take a full-page screenshot
 	img, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
 		URL:      "https://example.com",
 		Format:   "png",
@@ -48,12 +49,23 @@ func main() {
 	}
 	fmt.Printf("Saved screenshot.png (%d bytes)\n", len(img))
 
-	// Check quota remaining
-	quota, err := client.Quota(ctx)
+	// Or use the convenience method:
+	n, err := client.ScreenshotToFile(ctx, "screenshot2.png", snapapi.ScreenshotParams{
+		URL:      "https://example.com",
+		Format:   "png",
+		BlockAds: true,
+	})
 	if err != nil {
-		log.Printf("Warning: could not fetch quota: %v", err)
+		log.Fatal(err)
+	}
+	fmt.Printf("Saved screenshot2.png (%d bytes)\n", n)
+
+	// Check usage remaining
+	usage, err := client.GetUsage(ctx)
+	if err != nil {
+		log.Printf("Warning: could not fetch usage: %v", err)
 	} else {
-		fmt.Printf("Quota: %d used / %d total (%d remaining)\n",
-			quota.Used, quota.Total, quota.Remaining)
+		fmt.Printf("Usage: %d used / %d total (%d remaining)\n",
+			usage.Used, usage.Total, usage.Remaining)
 	}
 }
