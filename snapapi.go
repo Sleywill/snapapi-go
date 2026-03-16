@@ -43,7 +43,7 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://snapapi.pics"
+	defaultBaseURL = "https://api.snapapi.pics"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
 	userAgent      = "snapapi-go/3.1.0"
