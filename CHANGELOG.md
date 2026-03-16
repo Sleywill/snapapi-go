@@ -3,6 +3,23 @@
 All notable changes to the SnapAPI Go SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.0] - 2026-03-16
+
+### Added
+- `OGImage(ctx, OGImageParams)` method for Open Graph social image generation
+- `Ping(ctx)` method for API health check (`GET /v1/ping`)
+- `Quota(ctx)` alias for `GetUsage(ctx)`
+- `PDFToFile(ctx, filename, PDFParams)` convenience method
+- `PDFParams` now supports `HTML`, `PageSize`, `Landscape`, and individual margin fields
+- `Authorization: Bearer` header sent alongside `X-Api-Key` for maximum compatibility
+- `UsageResult.Limit` field
+- Additional tests: OGImage, Ping, PDF with HTML, Video, Quota alias
+
+### Changed
+- API base URL corrected to `https://snapapi.pics` (was `https://api.snapapi.pics`)
+- User-Agent updated to `snapapi-go/3.1.0`
+- PDF generation now uses `/v1/screenshot` with `format=pdf` (matching actual API)
+
 ## [2.1.0] - 2026-03-16
 
 ### Added

@@ -40,11 +40,14 @@ func binaryHandler(statusCode int, data []byte) http.HandlerFunc {
 	}
 }
 
-// assertAuthHeader checks that X-Api-Key is set correctly.
+// assertAuthHeader checks that both X-Api-Key and Authorization headers are set.
 func assertAuthHeader(t *testing.T, r *http.Request) {
 	t.Helper()
 	if key := r.Header.Get("X-Api-Key"); key != "test-key" {
 		t.Errorf("expected X-Api-Key=test-key, got %q", key)
+	}
+	if auth := r.Header.Get("Authorization"); auth != "Bearer test-key" {
+		t.Errorf("expected Authorization=Bearer test-key, got %q", auth)
 	}
 }
 
@@ -497,6 +500,155 @@ func TestContextCancellation(t *testing.T) {
 	_, err := client.Screenshot(ctx, snapapi.ScreenshotParams{URL: "https://example.com"})
 	if err == nil {
 		t.Fatal("expected context deadline error")
+	}
+}
+
+// --- OG Image ---
+
+func TestOGImage_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/screenshot" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["width"] != float64(1200) {
+			t.Errorf("expected width=1200, got %v", body["width"])
+		}
+		if body["height"] != float64(630) {
+			t.Errorf("expected height=630, got %v", body["height"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("fake-og-image"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.OGImage(context.Background(), snapapi.OGImageParams{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("OGImage() error: %v", err)
+	}
+	if string(got) != "fake-og-image" {
+		t.Errorf("unexpected body: %q", got)
+	}
+}
+
+func TestOGImage_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.OGImage(context.Background(), snapapi.OGImageParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
+	}
+}
+
+// --- Ping ---
+
+func TestPing_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/ping" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		assertAuthHeader(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":    "ok",
+			"timestamp": 1710540000000,
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	result, err := client.Ping(context.Background())
+	if err != nil {
+		t.Fatalf("Ping() error: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Errorf("expected status=ok, got %q", result.Status)
+	}
+}
+
+// --- PDF with HTML ---
+
+func TestPDF_WithHTML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["html"] != "<h1>Invoice</h1>" {
+			t.Errorf("unexpected html: %v", body["html"])
+		}
+		if body["format"] != "pdf" {
+			t.Errorf("expected format=pdf, got %v", body["format"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("%PDF-1.4 html"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.PDF(context.Background(), snapapi.PDFParams{HTML: "<h1>Invoice</h1>"})
+	if err != nil {
+		t.Fatalf("PDF() error: %v", err)
+	}
+	if !strings.HasPrefix(string(got), "%PDF") {
+		t.Errorf("expected PDF header, got: %q", got)
+	}
+}
+
+func TestPDF_MissingURLAndHTML(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.PDF(context.Background(), snapapi.PDFParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL and HTML")
+	}
+}
+
+// --- Quota alias ---
+
+func TestQuota_IsAlias(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"used": 5, "total": 100, "remaining": 95,
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	u, err := client.Quota(context.Background())
+	if err != nil {
+		t.Fatalf("Quota() error: %v", err)
+	}
+	if u.Used != 5 {
+		t.Errorf("expected Used=5, got %d", u.Used)
+	}
+}
+
+// --- Video ---
+
+func TestVideo_Success(t *testing.T) {
+	srv := httptest.NewServer(binaryHandler(200, []byte("fake-video-data")))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.Video(context.Background(), snapapi.VideoParams{URL: "https://example.com", Duration: 5})
+	if err != nil {
+		t.Fatalf("Video() error: %v", err)
+	}
+	if string(got) != "fake-video-data" {
+		t.Errorf("unexpected body: %q", got)
+	}
+}
+
+func TestVideo_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Video(context.Background(), snapapi.VideoParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
 	}
 }
 

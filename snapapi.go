@@ -43,10 +43,10 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.snapapi.pics"
+	defaultBaseURL = "https://snapapi.pics"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
-	userAgent      = "snapapi-go/2.1.0"
+	userAgent      = "snapapi-go/3.1.0"
 )
 
 // Client is the SnapAPI client. Create one with New().
@@ -367,22 +367,114 @@ func (c *Client) Analyze(ctx context.Context, p AnalyzeParams) (*AnalyzeResult, 
 
 // PDFParams holds parameters for PDF generation.
 type PDFParams struct {
-	// URL of the page to convert. Required.
-	URL string `json:"url"`
-	// Format is the paper size: "a4" (default) or "letter".
-	Format string `json:"format,omitempty"`
-	// Margin sets page margins (e.g. "10mm", "1cm").
-	Margin string `json:"margin,omitempty"`
+	// URL of the page to convert. Required (unless HTML is set).
+	URL string `json:"url,omitempty"`
+	// HTML is raw HTML to convert to PDF.
+	HTML string `json:"html,omitempty"`
+	// PageSize is the paper size: "a4" (default), "letter", etc.
+	PageSize string `json:"page_size,omitempty"`
+	// Landscape rotates the page to landscape orientation.
+	Landscape bool `json:"landscape,omitempty"`
+	// MarginTop sets the top margin (e.g. "10mm", "1cm").
+	MarginTop string `json:"margin_top,omitempty"`
+	// MarginBottom sets the bottom margin.
+	MarginBottom string `json:"margin_bottom,omitempty"`
+	// MarginLeft sets the left margin.
+	MarginLeft string `json:"margin_left,omitempty"`
+	// MarginRight sets the right margin.
+	MarginRight string `json:"margin_right,omitempty"`
 }
 
-// PDF generates a PDF of a URL.
+// PDF generates a PDF of a URL or HTML content.
+// Uses the screenshot endpoint with format=pdf.
 //
 //	pdfBytes, err := client.PDF(ctx, snapapi.PDFParams{URL: "https://example.com"})
 func (c *Client) PDF(ctx context.Context, p PDFParams) ([]byte, error) {
+	if p.URL == "" && p.HTML == "" {
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL or HTML is required", StatusCode: 400}
+	}
+	body := map[string]interface{}{
+		"format": "pdf",
+	}
+	if p.URL != "" {
+		body["url"] = p.URL
+	}
+	if p.HTML != "" {
+		body["html"] = p.HTML
+	}
+	if p.PageSize != "" {
+		body["page_size"] = p.PageSize
+	}
+	if p.Landscape {
+		body["landscape"] = true
+	}
+	if p.MarginTop != "" {
+		body["margin_top"] = p.MarginTop
+	}
+	if p.MarginBottom != "" {
+		body["margin_bottom"] = p.MarginBottom
+	}
+	if p.MarginLeft != "" {
+		body["margin_left"] = p.MarginLeft
+	}
+	if p.MarginRight != "" {
+		body["margin_right"] = p.MarginRight
+	}
+	return c.doRaw(ctx, http.MethodPost, "/v1/screenshot", body)
+}
+
+// PDFToFile generates a PDF and writes it directly to a file.
+// Returns the number of bytes written.
+func (c *Client) PDFToFile(ctx context.Context, filename string, p PDFParams) (int, error) {
+	data, err := c.PDF(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return 0, fmt.Errorf("snapapi: write file %q: %w", filename, err)
+	}
+	return len(data), nil
+}
+
+// ---------------------------------------------------------------------------
+// OG Image
+// ---------------------------------------------------------------------------
+
+// OGImageParams holds parameters for OG image generation.
+type OGImageParams struct {
+	// URL of the page. Required.
+	URL string `json:"url"`
+	// Format: "png" (default), "jpeg", "webp".
+	Format string `json:"format,omitempty"`
+	// Width of the OG image. Default: 1200.
+	Width int `json:"width,omitempty"`
+	// Height of the OG image. Default: 630.
+	Height int `json:"height,omitempty"`
+}
+
+// OGImage generates an Open Graph social image for a URL.
+// Uses the screenshot endpoint with OG-standard dimensions.
+//
+//	ogBytes, err := client.OGImage(ctx, snapapi.OGImageParams{URL: "https://example.com"})
+func (c *Client) OGImage(ctx context.Context, p OGImageParams) ([]byte, error) {
 	if p.URL == "" {
 		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-	return c.doRaw(ctx, http.MethodPost, "/v1/pdf", p)
+	width := p.Width
+	if width == 0 {
+		width = 1200
+	}
+	height := p.Height
+	if height == 0 {
+		height = 630
+	}
+	screenshotParams := ScreenshotParams{
+		URL:    p.URL,
+		Format: p.Format,
+		Width:  width,
+		Height: height,
+	}
+	return c.Screenshot(ctx, screenshotParams)
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +512,7 @@ func (c *Client) Video(ctx context.Context, p VideoParams) ([]byte, error) {
 // UsageResult is the response from GET /v1/usage.
 type UsageResult struct {
 	Used      int    `json:"used"`
+	Limit     int    `json:"limit"`
 	Total     int    `json:"total"`
 	Remaining int    `json:"remaining"`
 	ResetAt   string `json:"resetAt,omitempty"`
@@ -428,10 +521,37 @@ type UsageResult struct {
 // GetUsage returns the caller's current API usage statistics.
 //
 //	usage, err := client.GetUsage(ctx)
-//	fmt.Printf("Used: %d / %d\n", usage.Used, usage.Total)
+//	fmt.Printf("Used: %d / %d\n", usage.Used, usage.Limit)
 func (c *Client) GetUsage(ctx context.Context) (*UsageResult, error) {
 	var result UsageResult
 	if err := c.doJSON(ctx, http.MethodGet, "/v1/usage", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Quota is an alias for GetUsage, kept for backward compatibility.
+func (c *Client) Quota(ctx context.Context) (*UsageResult, error) {
+	return c.GetUsage(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// Ping
+// ---------------------------------------------------------------------------
+
+// PingResult is the response from GET /v1/ping.
+type PingResult struct {
+	Status    string `json:"status"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// Ping checks the API health.
+//
+//	result, err := client.Ping(ctx)
+//	fmt.Println(result.Status)
+func (c *Client) Ping(ctx context.Context) (*PingResult, error) {
+	var result PingResult
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/ping", nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -513,6 +633,7 @@ func (c *Client) roundTrip(ctx context.Context, method, path string, body interf
 		return nil, fmt.Errorf("snapapi: build request: %w", err)
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
 

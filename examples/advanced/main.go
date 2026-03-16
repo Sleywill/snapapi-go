@@ -65,9 +65,10 @@ func main() {
 	// --- Use case 3: Generate PDF report ---
 	fmt.Println("\n=== PDF Report Generation ===")
 	pdfBytes, err := client.PDF(ctx, snapapi.PDFParams{
-		URL:    "https://example.com",
-		Format: "a4",
-		Margin: "10mm",
+		URL:       "https://example.com",
+		PageSize:  "a4",
+		MarginTop: "10mm",
+		MarginBottom: "10mm",
 	})
 	if err != nil {
 		log.Printf("PDF generation failed: %v", err)
