@@ -21,6 +21,15 @@
 //	}
 //	os.WriteFile("screenshot.png", img, 0644)
 //
+// # Namespaces
+//
+// The client exposes sub-namespaces for grouping related endpoints:
+//
+//	client.Storage    -- manage stored captures
+//	client.Scheduled  -- schedule recurring captures
+//	client.Webhooks   -- manage webhook endpoints
+//	client.APIKeys    -- manage API keys for your account
+//
 // # Error handling
 //
 // All methods return a typed *APIError on failure. Use errors.As to inspect it:
@@ -50,12 +59,20 @@ const (
 )
 
 // Client is the SnapAPI client. Create one with New().
+//
+// The client is safe for concurrent use by multiple goroutines.
 type Client struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
 	retries    int
 	retryDelay time.Duration
+
+	// Sub-namespace accessors. Populated by New().
+	Storage   *StorageNamespace
+	Scheduled *ScheduledNamespace
+	Webhooks  *WebhooksNamespace
+	APIKeys   *APIKeysNamespace
 }
 
 // Option configures a Client. Pass options to New().
@@ -118,6 +135,11 @@ func New(apiKey string, opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
+	// Wire up namespace accessors.
+	c.Storage = &StorageNamespace{c: c}
+	c.Scheduled = &ScheduledNamespace{c: c}
+	c.Webhooks = &WebhooksNamespace{c: c}
+	c.APIKeys = &APIKeysNamespace{c: c}
 	return c
 }
 
@@ -213,6 +235,54 @@ func (c *Client) ScreenshotToFile(ctx context.Context, filename string, p Screen
 	return len(data), nil
 }
 
+// ScreenshotToStorageParams are the parameters for ScreenshotToStorage.
+type ScreenshotToStorageParams struct {
+	ScreenshotParams
+	// StorageKey is the object key / path to store the capture under.
+	// If empty the server assigns a key.
+	StorageKey string `json:"storage_key,omitempty"`
+	// StorageBucket overrides the default storage bucket.
+	StorageBucket string `json:"storage_bucket,omitempty"`
+}
+
+// StorageCapture is the response returned when a capture is saved to cloud storage.
+type StorageCapture struct {
+	// URL is the public URL of the stored capture.
+	URL string `json:"url"`
+	// Key is the storage object key.
+	Key string `json:"key"`
+	// Bucket is the storage bucket name.
+	Bucket string `json:"bucket"`
+	// Size is the file size in bytes.
+	Size int64 `json:"size"`
+	// ContentType is the MIME type of the stored file.
+	ContentType string `json:"content_type"`
+	// CreatedAt is the ISO 8601 timestamp of when the capture was stored.
+	CreatedAt string `json:"created_at"`
+}
+
+// ScreenshotToStorage captures a screenshot and stores it directly in cloud
+// storage managed by SnapAPI, returning a public URL and metadata.
+//
+//	capture, err := client.ScreenshotToStorage(ctx, ScreenshotToStorageParams{
+//	    ScreenshotParams: snapapi.ScreenshotParams{
+//	        URL:    "https://example.com",
+//	        Format: "png",
+//	    },
+//	    StorageKey: "reports/home.png",
+//	})
+//	fmt.Println(capture.URL)
+func (c *Client) ScreenshotToStorage(ctx context.Context, p ScreenshotToStorageParams) (*StorageCapture, error) {
+	if p.URL == "" {
+		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
+	}
+	var result StorageCapture
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/screenshot/storage", p, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // ---------------------------------------------------------------------------
 // Scrape
 // ---------------------------------------------------------------------------
@@ -258,6 +328,30 @@ func (c *Client) Scrape(ctx context.Context, p ScrapeParams) (*ScrapeResult, err
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ScrapeText is a convenience wrapper that scrapes the page and returns only
+// the plain-text content string (no metadata).
+//
+//	text, err := client.ScrapeText(ctx, "https://example.com")
+func (c *Client) ScrapeText(ctx context.Context, url string) (string, error) {
+	result, err := c.Scrape(ctx, ScrapeParams{URL: url, Format: "text"})
+	if err != nil {
+		return "", err
+	}
+	return result.Data, nil
+}
+
+// ScrapeHTML is a convenience wrapper that scrapes the page and returns only
+// the raw HTML string (no metadata).
+//
+//	html, err := client.ScrapeHTML(ctx, "https://example.com")
+func (c *Client) ScrapeHTML(ctx context.Context, url string) (string, error) {
+	result, err := c.Scrape(ctx, ScrapeParams{URL: url, Format: "html"})
+	if err != nil {
+		return "", err
+	}
+	return result.Data, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +406,30 @@ func (c *Client) Extract(ctx context.Context, p ExtractParams) (*ExtractResult, 
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ExtractMarkdown is a convenience wrapper that extracts page content as
+// Markdown, returning only the content string.
+//
+//	md, err := client.ExtractMarkdown(ctx, "https://example.com/blog/post")
+func (c *Client) ExtractMarkdown(ctx context.Context, url string) (string, error) {
+	result, err := c.Extract(ctx, ExtractParams{URL: url, Format: "markdown"})
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
+}
+
+// ExtractText is a convenience wrapper that extracts page content as plain
+// text, returning only the content string.
+//
+//	text, err := client.ExtractText(ctx, "https://example.com/blog/post")
+func (c *Client) ExtractText(ctx context.Context, url string) (string, error) {
+	result, err := c.Extract(ctx, ExtractParams{URL: url, Format: "text"})
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -562,7 +680,9 @@ func (c *Client) Ping(ctx context.Context) (*PingResult, error) {
 // ---------------------------------------------------------------------------
 
 // doRaw executes a request and returns the raw response body.
-// Retries on transient errors with exponential back-off.
+// Retries on transient errors (5xx, 429, network failures) with exponential
+// back-off. When the server sends a Retry-After header that value is used as
+// the wait duration instead of the computed back-off.
 func (c *Client) doRaw(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
 	var (
 		lastErr error
@@ -570,34 +690,31 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body interface{
 	)
 	attempts := c.retries + 1
 	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delay):
-			}
-			delay *= 2
-		}
-
 		data, err := c.roundTrip(ctx, method, path, body)
 		if err == nil {
 			return data, nil
 		}
 
+		// Determine whether this attempt is retryable.
 		var apiErr *APIError
-		if isRetryable(err, &apiErr) && i < attempts-1 {
-			// Respect Retry-After if present (stored in APIError.RetryAfter)
-			if apiErr != nil && apiErr.RetryAfter > 0 {
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(time.Duration(apiErr.RetryAfter) * time.Second):
-				}
-			}
-			lastErr = err
-			continue
+		if !isRetryable(err, &apiErr) || i >= attempts-1 {
+			return nil, err
 		}
-		return nil, err
+
+		// Compute the sleep duration: honour Retry-After if present, otherwise
+		// use exponential back-off.
+		waitDur := delay
+		if apiErr != nil && apiErr.RetryAfter > 0 {
+			waitDur = time.Duration(apiErr.RetryAfter) * time.Second
+		}
+		delay *= 2
+
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(waitDur):
+		}
 	}
 	return nil, lastErr
 }

@@ -20,6 +20,7 @@ const (
 	ErrConnectionError = "CONNECTION_ERROR"
 	ErrServerError     = "SERVER_ERROR"
 	ErrServiceDown     = "SERVICE_UNAVAILABLE"
+	ErrNotFound        = "NOT_FOUND"
 )
 
 // APIError is the structured error type returned by every Client method.
@@ -89,6 +90,9 @@ func isRetryable(err error, apiErr **APIError) bool {
 	return true
 }
 
+// IsQuotaExceeded reports whether the error is a quota-exceeded (402) response.
+func (e *APIError) IsQuotaExceeded() bool { return e.Code == ErrQuotaExceeded }
+
 // rawAPIError matches the JSON shape the SnapAPI server returns on errors.
 type rawAPIError struct {
 	StatusCode int                      `json:"statusCode"`
@@ -129,24 +133,36 @@ func mapErrorCode(errType string, statusCode int) string {
 	switch statusCode {
 	case http.StatusUnauthorized:
 		return ErrUnauthorized
+	case http.StatusPaymentRequired:
+		return ErrQuotaExceeded
 	case http.StatusForbidden:
 		return ErrForbidden
+	case http.StatusNotFound:
+		return ErrNotFound
 	case http.StatusTooManyRequests:
 		return ErrRateLimited
 	case http.StatusServiceUnavailable:
 		return ErrServiceDown
 	}
 	switch errType {
-	case "Validation Error":
+	case "Validation Error", "Bad Request":
 		return ErrInvalidParams
 	case "Unauthorized":
 		return ErrUnauthorized
+	case "Payment Required":
+		return ErrQuotaExceeded
 	case "Forbidden":
 		return ErrForbidden
-	case "Rate Limited":
+	case "Not Found":
+		return ErrNotFound
+	case "Rate Limited", "Too Many Requests":
 		return ErrRateLimited
 	case "Timeout":
 		return ErrTimeout
+	case "Capture Failed":
+		return ErrCaptureFailed
+	case "Service Unavailable":
+		return ErrServiceDown
 	default:
 		if statusCode >= 500 {
 			return ErrServerError
