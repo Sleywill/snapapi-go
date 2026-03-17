@@ -3,6 +3,7 @@ package snapapi_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -483,8 +484,11 @@ func TestRetry_NoRetryOn4xx(t *testing.T) {
 // --- Context cancellation ---
 
 func TestContextCancellation(t *testing.T) {
+	// The server uses a short sleep so the test completes quickly while
+	// still outlasting the client-side deadline.  We avoid blocking on any
+	// channel so that httptest.Server.Close() can drain the connection.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -494,6 +498,8 @@ func TestContextCancellation(t *testing.T) {
 		snapapi.WithRetries(0),
 		snapapi.WithTimeout(10*time.Second),
 	)
+	// Context times out after 50ms; server sleeps 200ms — the client sees a
+	// deadline exceeded error before the server ever responds.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -652,42 +658,593 @@ func TestVideo_MissingURL(t *testing.T) {
 	}
 }
 
+// --- ScrapeText / ScrapeHTML convenience methods ---
+
+func TestScrapeText_Success(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
+		"data":   "Hello world",
+		"url":    "https://example.com",
+		"status": 200,
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	text, err := client.ScrapeText(context.Background(), "https://example.com")
+	if err != nil {
+		t.Fatalf("ScrapeText() error: %v", err)
+	}
+	if text != "Hello world" {
+		t.Errorf("unexpected text: %q", text)
+	}
+}
+
+func TestScrapeHTML_Success(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
+		"data":   "<html><body>Hello</body></html>",
+		"url":    "https://example.com",
+		"status": 200,
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	html, err := client.ScrapeHTML(context.Background(), "https://example.com")
+	if err != nil {
+		t.Fatalf("ScrapeHTML() error: %v", err)
+	}
+	if !strings.Contains(html, "<html>") {
+		t.Errorf("unexpected html: %q", html)
+	}
+}
+
+// --- ExtractMarkdown / ExtractText convenience methods ---
+
+func TestExtractMarkdown_Success(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
+		"content":    "# Title\n\nBody.",
+		"url":        "https://example.com",
+		"word_count": 2,
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	md, err := client.ExtractMarkdown(context.Background(), "https://example.com")
+	if err != nil {
+		t.Fatalf("ExtractMarkdown() error: %v", err)
+	}
+	if !strings.HasPrefix(md, "# Title") {
+		t.Errorf("unexpected markdown: %q", md)
+	}
+}
+
+func TestExtractText_Success(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
+		"content":    "Title Body.",
+		"url":        "https://example.com",
+		"word_count": 2,
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	text, err := client.ExtractText(context.Background(), "https://example.com")
+	if err != nil {
+		t.Fatalf("ExtractText() error: %v", err)
+	}
+	if text != "Title Body." {
+		t.Errorf("unexpected text: %q", text)
+	}
+}
+
+// --- ScreenshotToStorage ---
+
+func TestScreenshotToStorage_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/screenshot/storage" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"url":          "https://storage.snapapi.pics/reports/home.png",
+			"key":          "reports/home.png",
+			"bucket":       "snapapi-captures",
+			"size":         45678,
+			"content_type": "image/png",
+			"created_at":   "2026-03-17T10:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	capture, err := client.ScreenshotToStorage(context.Background(), snapapi.ScreenshotToStorageParams{
+		ScreenshotParams: snapapi.ScreenshotParams{
+			URL:    "https://example.com",
+			Format: "png",
+		},
+		StorageKey: "reports/home.png",
+	})
+	if err != nil {
+		t.Fatalf("ScreenshotToStorage() error: %v", err)
+	}
+	if capture.Key != "reports/home.png" {
+		t.Errorf("unexpected key: %q", capture.Key)
+	}
+	if capture.Size != 45678 {
+		t.Errorf("unexpected size: %d", capture.Size)
+	}
+}
+
+func TestScreenshotToStorage_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.ScreenshotToStorage(context.Background(), snapapi.ScreenshotToStorageParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
+	}
+	var apiErr *snapapi.APIError
+	if !isAPIError(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Code != snapapi.ErrInvalidParams {
+		t.Errorf("unexpected code: %s", apiErr.Code)
+	}
+}
+
+// --- Storage namespace ---
+
+func TestStorage_List(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if !strings.HasPrefix(r.URL.Path, "/v1/storage") {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"items": []map[string]interface{}{
+				{"key": "home.png", "url": "https://cdn.example.com/home.png", "size": 1234, "content_type": "image/png", "created_at": "2026-03-17T10:00:00Z"},
+			},
+			"total":    1,
+			"page":     1,
+			"per_page": 20,
+			"has_more": false,
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	result, err := client.Storage.List(context.Background(), snapapi.StorageListParams{})
+	if err != nil {
+		t.Fatalf("Storage.List() error: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Errorf("expected 1 item, got %d", len(result.Items))
+	}
+	if result.Items[0].Key != "home.png" {
+		t.Errorf("unexpected key: %q", result.Items[0].Key)
+	}
+}
+
+func TestStorage_Get(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/storage/home.png" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"key": "home.png", "url": "https://cdn.example.com/home.png",
+			"size": 1234, "content_type": "image/png", "created_at": "2026-03-17T10:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	item, err := client.Storage.Get(context.Background(), "home.png")
+	if err != nil {
+		t.Fatalf("Storage.Get() error: %v", err)
+	}
+	if item.Key != "home.png" {
+		t.Errorf("unexpected key: %q", item.Key)
+	}
+}
+
+func TestStorage_Get_MissingKey(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Storage.Get(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty key")
+	}
+}
+
+func TestStorage_Delete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/v1/storage/home.png" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if err := client.Storage.Delete(context.Background(), "home.png"); err != nil {
+		t.Fatalf("Storage.Delete() error: %v", err)
+	}
+}
+
+// --- Scheduled namespace ---
+
+func TestScheduled_Create(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/scheduled" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["url"] != "https://example.com" {
+			t.Errorf("unexpected url: %v", body["url"])
+		}
+		if body["cron"] != "0 9 * * 1-5" {
+			t.Errorf("unexpected cron: %v", body["cron"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "sched_abc123", "url": "https://example.com",
+			"cron": "0 9 * * 1-5", "active": true, "created_at": "2026-03-17T10:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	sched, err := client.Scheduled.Create(context.Background(), snapapi.CreateScheduleParams{
+		URL:  "https://example.com",
+		Cron: "0 9 * * 1-5",
+	})
+	if err != nil {
+		t.Fatalf("Scheduled.Create() error: %v", err)
+	}
+	if sched.ID != "sched_abc123" {
+		t.Errorf("unexpected ID: %q", sched.ID)
+	}
+}
+
+func TestScheduled_Create_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Scheduled.Create(context.Background(), snapapi.CreateScheduleParams{Cron: "* * * * *"})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
+	}
+}
+
+func TestScheduled_Create_MissingCron(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Scheduled.Create(context.Background(), snapapi.CreateScheduleParams{URL: "https://example.com"})
+	if err == nil {
+		t.Fatal("expected error for missing cron")
+	}
+}
+
+func TestScheduled_Delete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if err := client.Scheduled.Delete(context.Background(), "sched_abc123"); err != nil {
+		t.Fatalf("Scheduled.Delete() error: %v", err)
+	}
+}
+
+func TestScheduled_Pause_Resume(t *testing.T) {
+	var receivedPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPaths = append(receivedPaths, r.URL.Path)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_ = client.Scheduled.Pause(context.Background(), "sched_abc123")
+	_ = client.Scheduled.Resume(context.Background(), "sched_abc123")
+
+	if len(receivedPaths) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(receivedPaths))
+	}
+	if receivedPaths[0] != "/v1/scheduled/sched_abc123/pause" {
+		t.Errorf("unexpected pause path: %s", receivedPaths[0])
+	}
+	if receivedPaths[1] != "/v1/scheduled/sched_abc123/resume" {
+		t.Errorf("unexpected resume path: %s", receivedPaths[1])
+	}
+}
+
+// --- Webhooks namespace ---
+
+func TestWebhooks_Create(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/webhooks" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["url"] != "https://myapp.com/hooks/snapapi" {
+			t.Errorf("unexpected url: %v", body["url"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "wh_abc123", "url": "https://myapp.com/hooks/snapapi",
+			"events": []string{"screenshot.completed"}, "active": true,
+			"created_at": "2026-03-17T10:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	wh, err := client.Webhooks.Create(context.Background(), snapapi.CreateWebhookParams{
+		URL:    "https://myapp.com/hooks/snapapi",
+		Events: []string{"screenshot.completed"},
+	})
+	if err != nil {
+		t.Fatalf("Webhooks.Create() error: %v", err)
+	}
+	if wh.ID != "wh_abc123" {
+		t.Errorf("unexpected ID: %q", wh.ID)
+	}
+}
+
+func TestWebhooks_Create_MissingURL(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Webhooks.Create(context.Background(), snapapi.CreateWebhookParams{})
+	if err == nil {
+		t.Fatal("expected error for missing URL")
+	}
+}
+
+func TestWebhooks_List(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/webhooks" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+			{"id": "wh_1", "url": "https://myapp.com/hooks/1", "events": []string{"screenshot.completed"}, "active": true, "created_at": "2026-03-17T10:00:00Z"},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	hooks, err := client.Webhooks.List(context.Background())
+	if err != nil {
+		t.Fatalf("Webhooks.List() error: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("expected 1 webhook, got %d", len(hooks))
+	}
+	if hooks[0].ID != "wh_1" {
+		t.Errorf("unexpected ID: %q", hooks[0].ID)
+	}
+}
+
+func TestWebhooks_Delete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v1/webhooks/wh_abc123" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if err := client.Webhooks.Delete(context.Background(), "wh_abc123"); err != nil {
+		t.Fatalf("Webhooks.Delete() error: %v", err)
+	}
+}
+
+// --- APIKeys namespace ---
+
+func TestAPIKeys_Create(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/api-keys" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["name"] != "CI pipeline" {
+			t.Errorf("unexpected name: %v", body["name"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "key_abc123", "name": "CI pipeline",
+			"key": "sk_live_newkey", "created_at": "2026-03-17T10:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	key, err := client.APIKeys.Create(context.Background(), snapapi.CreateAPIKeyParams{Name: "CI pipeline"})
+	if err != nil {
+		t.Fatalf("APIKeys.Create() error: %v", err)
+	}
+	if key.Key != "sk_live_newkey" {
+		t.Errorf("unexpected key: %q", key.Key)
+	}
+}
+
+func TestAPIKeys_Create_MissingName(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.APIKeys.Create(context.Background(), snapapi.CreateAPIKeyParams{})
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestAPIKeys_List(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/api-keys" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+			{"id": "key_1", "name": "prod", "created_at": "2026-03-17T10:00:00Z"},
+			{"id": "key_2", "name": "staging", "created_at": "2026-03-17T10:00:00Z"},
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	keys, err := client.APIKeys.List(context.Background())
+	if err != nil {
+		t.Fatalf("APIKeys.List() error: %v", err)
+	}
+	if len(keys) != 2 {
+		t.Fatalf("expected 2 keys, got %d", len(keys))
+	}
+}
+
+func TestAPIKeys_Revoke(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v1/api-keys/key_abc123" {
+			t.Errorf("unexpected method/path: %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	if err := client.APIKeys.Revoke(context.Background(), "key_abc123"); err != nil {
+		t.Fatalf("APIKeys.Revoke() error: %v", err)
+	}
+}
+
+func TestAPIKeys_Revoke_MissingID(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	err := client.APIKeys.Revoke(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty ID")
+	}
+}
+
+// --- Error code mapping ---
+
+func TestErrorCode_QuotaExceeded(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(402, map[string]interface{}{
+		"statusCode": 402,
+		"error":      "Payment Required",
+		"message":    "Monthly quota exceeded",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	var apiErr *snapapi.APIError
+	if !isAPIError(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Code != snapapi.ErrQuotaExceeded {
+		t.Errorf("expected QUOTA_EXCEEDED, got %q", apiErr.Code)
+	}
+	if !apiErr.IsQuotaExceeded() {
+		t.Error("IsQuotaExceeded() should be true")
+	}
+}
+
+func TestErrorCode_NotFound(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(404, map[string]interface{}{
+		"statusCode": 404,
+		"error":      "Not Found",
+		"message":    "Resource not found",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	var apiErr *snapapi.APIError
+	if !isAPIError(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.Code != snapapi.ErrNotFound {
+		t.Errorf("expected NOT_FOUND, got %q", apiErr.Code)
+	}
+}
+
+// --- Retry: Retry-After overrides backoff ---
+
+func TestRetry_RetryAfterOverridesBackoff(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			// Send Retry-After of 0 seconds so the test stays fast.
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(429)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"statusCode": 429, "error": "Rate Limited", "message": "slow down",
+			})
+			return
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	client := snapapi.New("test-key",
+		snapapi.WithBaseURL(srv.URL),
+		snapapi.WithRetries(1),
+		snapapi.WithRetryDelay(10*time.Second), // would make the test very slow if used
+	)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 calls, got %d", calls)
+	}
+}
+
+// --- Namespace: nil guard / thread safety ---
+
+func TestClient_NamespacesInitialized(t *testing.T) {
+	client := snapapi.New("test-key")
+	if client.Storage == nil {
+		t.Error("Storage namespace is nil")
+	}
+	if client.Scheduled == nil {
+		t.Error("Scheduled namespace is nil")
+	}
+	if client.Webhooks == nil {
+		t.Error("Webhooks namespace is nil")
+	}
+	if client.APIKeys == nil {
+		t.Error("APIKeys namespace is nil")
+	}
+}
+
 // --- Error helpers ---
 
+// isAPIError uses errors.As to check whether err is (or wraps) *snapapi.APIError.
+// When it returns true, *out is set to the unwrapped *APIError.
 func isAPIError(err error, out **snapapi.APIError) bool {
 	var ae *snapapi.APIError
-	if ok := isAs(err, &ae); ok {
+	if errors.As(err, &ae) {
 		if out != nil {
 			*out = ae
 		}
 		return true
 	}
 	return false
-}
-
-func isAs(err error, target interface{}) bool {
-	type unwrapper interface{ Unwrap() error }
-	for err != nil {
-		if tryAs(err, target) {
-			return true
-		}
-		u, ok := err.(unwrapper)
-		if !ok {
-			break
-		}
-		err = u.Unwrap()
-	}
-	return false
-}
-
-func tryAs(err error, target interface{}) bool {
-	ae, ok := target.(**snapapi.APIError)
-	if !ok {
-		return false
-	}
-	v, ok := err.(*snapapi.APIError)
-	if ok {
-		*ae = v
-	}
-	return ok
 }

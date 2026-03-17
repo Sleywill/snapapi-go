@@ -17,3 +17,6 @@ go.work
 
 # OS
 .DS_Store
+
+# Agent
+.claude/
