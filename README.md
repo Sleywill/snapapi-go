@@ -1,8 +1,9 @@
-# snapapi-go
+# SnapAPI Go SDK
 
-Official Go SDK for [SnapAPI.pics](https://snapapi.pics) -- capture screenshots, generate PDFs, scrape pages, extract structured content, and analyze web pages with LLMs.
+Official Go SDK for [SnapAPI.pics](https://snapapi.pics) — capture screenshots, generate PDFs, scrape pages, extract structured content, and analyze web pages with LLMs.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/Sleywill/snapapi-go.svg)](https://pkg.go.dev/github.com/Sleywill/snapapi-go)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Sleywill/snapapi-go)](https://goreportcard.com/report/github.com/Sleywill/snapapi-go)
 [![CI](https://github.com/Sleywill/snapapi-go/actions/workflows/ci.yml/badge.svg)](https://github.com/Sleywill/snapapi-go/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -562,6 +563,15 @@ go run ./examples/advanced/
 go test -race -v ./...
 ```
 
+## Links
+
+- [SnapAPI Website](https://snapapi.pics)
+- [API Documentation](https://snapapi.pics/docs)
+- [Go Package Reference](https://pkg.go.dev/github.com/Sleywill/snapapi-go)
+- [GitHub Repository](https://github.com/Sleywill/snapapi-go)
+- [Changelog](./CHANGELOG.md)
+- [Report Issues](https://github.com/Sleywill/snapapi-go/issues)
+
 ## License
 
-MIT -- see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
