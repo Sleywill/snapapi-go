@@ -186,17 +186,30 @@ fmt.Println(result.Result)
 > **Note:** The analyze endpoint may return HTTP 503 if LLM credits are exhausted.
 > Check `apiErr.IsServiceUnavailable()` to handle this gracefully.
 
-### PDF -- `POST /v1/pdf`
+### PDF -- `POST /v1/screenshot` (format=pdf)
 
-Generate a PDF from any URL:
+Generate a PDF from any URL or raw HTML:
 
 ```go
 pdfBytes, err := client.PDF(ctx, snapapi.PDFParams{
-    URL:    "https://example.com",
-    Format: "a4",      // "a4" or "letter"
-    Margin: "10mm",    // page margins
+    URL:          "https://example.com",
+    PageSize:     "a4",   // "a4" or "letter"
+    MarginTop:    "10mm",
+    MarginBottom: "10mm",
+    MarginLeft:   "10mm",
+    MarginRight:  "10mm",
+    Landscape:    false,
 })
 os.WriteFile("output.pdf", pdfBytes, 0644)
+
+// Or generate from raw HTML:
+pdfBytes, err = client.PDF(ctx, snapapi.PDFParams{
+    HTML: "<h1>Invoice #1234</h1><p>Total: $99</p>",
+})
+
+// Convenience method to write directly to disk:
+n, err := client.PDFToFile(ctx, "invoice.pdf", snapapi.PDFParams{URL: "https://example.com/invoice/1"})
+fmt.Printf("Wrote %d bytes\n", n)
 ```
 
 ### Video -- `POST /v1/video`
@@ -224,11 +237,131 @@ fmt.Printf("Used: %d / %d (%d remaining, resets %s)\n",
     usage.Used, usage.Total, usage.Remaining, usage.ResetAt)
 ```
 
+### OGImage
+
+Convenience wrapper that captures a screenshot at OG-standard dimensions:
+
+```go
+og, err := client.OGImage(ctx, snapapi.OGImageParams{
+    URL:    "https://example.com/blog/my-post",
+    Format: "png",
+    Width:  1200, // default
+    Height: 630,  // default
+})
+os.WriteFile("og.png", og, 0644)
+```
+
+### Ping -- `GET /v1/ping`
+
+Health check:
+
+```go
+result, err := client.Ping(ctx)
+fmt.Println(result.Status) // "ok"
+```
+
+### Convenience methods
+
+```go
+// Scrape shortcuts
+text, err := client.ScrapeText(ctx, "https://example.com")
+html, err := client.ScrapeHTML(ctx, "https://example.com")
+
+// Extract shortcuts
+md,   err := client.ExtractMarkdown(ctx, "https://example.com/blog/post")
+text, err  = client.ExtractText(ctx, "https://example.com/blog/post")
+```
+
+### ScreenshotToStorage
+
+Capture and store directly in SnapAPI-managed cloud storage:
+
+```go
+capture, err := client.ScreenshotToStorage(ctx, snapapi.ScreenshotToStorageParams{
+    ScreenshotParams: snapapi.ScreenshotParams{
+        URL:    "https://example.com",
+        Format: "png",
+    },
+    StorageKey: "reports/2026-03-17/home.png",
+})
+fmt.Println(capture.URL)  // public CDN URL
+fmt.Println(capture.Size) // bytes
+```
+
+## Namespaces
+
+The client exposes four sub-namespaces for managing account resources:
+
+### Storage -- `client.Storage`
+
+```go
+// List stored captures
+items, err := client.Storage.List(ctx, snapapi.StorageListParams{PerPage: 50})
+
+// Get metadata for one capture
+item, err := client.Storage.Get(ctx, "reports/home.png")
+fmt.Println(item.URL)
+
+// Delete a stored capture
+err = client.Storage.Delete(ctx, "reports/home.png")
+```
+
+### Scheduled -- `client.Scheduled`
+
+```go
+// Create a recurring schedule (cron syntax)
+sched, err := client.Scheduled.Create(ctx, snapapi.CreateScheduleParams{
+    URL:  "https://example.com",
+    Cron: "0 9 * * 1-5", // weekdays at 09:00 UTC
+})
+fmt.Println(sched.ID, sched.NextRunAt)
+
+// List / Get / Delete / Pause / Resume
+schedules, err := client.Scheduled.List(ctx)
+err = client.Scheduled.Pause(ctx, sched.ID)
+err = client.Scheduled.Resume(ctx, sched.ID)
+err = client.Scheduled.Delete(ctx, sched.ID)
+```
+
+### Webhooks -- `client.Webhooks`
+
+```go
+// Register a webhook
+wh, err := client.Webhooks.Create(ctx, snapapi.CreateWebhookParams{
+    URL:    "https://myapp.com/hooks/snapapi",
+    Events: []string{"screenshot.completed", "schedule.run.failed"},
+    Secret: "my-signing-secret", // used to verify HMAC signature
+})
+fmt.Println(wh.ID)
+
+// List / Get / Delete
+hooks, err := client.Webhooks.List(ctx)
+err = client.Webhooks.Delete(ctx, wh.ID)
+```
+
+### APIKeys -- `client.APIKeys`
+
+```go
+// Create a new key (raw key only returned once)
+key, err := client.APIKeys.Create(ctx, snapapi.CreateAPIKeyParams{
+    Name: "CI pipeline",
+})
+fmt.Println(key.Key) // store securely -- not shown again
+
+// List keys (metadata only, no raw key values)
+keys, err := client.APIKeys.List(ctx)
+
+// Revoke (permanently delete) a key
+err = client.APIKeys.Revoke(ctx, key.ID)
+```
+
 ## Error Handling
 
 Every method returns `(result, error)` and never panics. API errors are typed as `*APIError`:
 
 ```go
+import "errors"
+
 img, err := client.Screenshot(ctx, params)
 if err != nil {
     var apiErr *snapapi.APIError
@@ -238,6 +371,8 @@ if err != nil {
             fmt.Printf("Rate limited. Retry after %ds\n", apiErr.RetryAfter)
         case apiErr.IsUnauthorized():
             log.Fatal("Invalid API key")
+        case apiErr.IsQuotaExceeded():
+            log.Fatal("Monthly quota exhausted. Upgrade your plan.")
         case apiErr.IsServerError():
             log.Printf("Server error: %s", apiErr.Message)
         case apiErr.IsServiceUnavailable():
@@ -256,9 +391,10 @@ if err != nil {
 |---|---|---|
 | `ErrInvalidParams` | 400 | Bad request parameters |
 | `ErrUnauthorized` | 401 | Invalid or missing API key |
-| `ErrForbidden` | 403 | Insufficient permissions |
-| `ErrRateLimited` | 429 | Rate limit exceeded (check `RetryAfter`) |
 | `ErrQuotaExceeded` | 402 | Monthly quota exhausted |
+| `ErrForbidden` | 403 | Insufficient permissions |
+| `ErrNotFound` | 404 | Resource not found |
+| `ErrRateLimited` | 429 | Rate limit exceeded (check `RetryAfter`) |
 | `ErrTimeout` | -- | Request timed out server-side |
 | `ErrCaptureFailed` | -- | Browser capture failed |
 | `ErrConnectionError` | -- | Network-level failure |
@@ -271,6 +407,7 @@ if err != nil {
 |---|---|
 | `IsRateLimited()` | Returns true if the error is HTTP 429 |
 | `IsUnauthorized()` | Returns true if the error is HTTP 401/403 |
+| `IsQuotaExceeded()` | Returns true if the error is HTTP 402 |
 | `IsServerError()` | Returns true for any 5xx status |
 | `IsServiceUnavailable()` | Returns true for HTTP 503 |
 

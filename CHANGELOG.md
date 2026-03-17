@@ -3,9 +3,33 @@
 All notable changes to the SnapAPI Go SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [3.1.0] - 2026-03-16
+## [3.1.0] - 2026-03-17
 
 ### Added
+- `ScreenshotToStorage(ctx, ScreenshotToStorageParams)` -- save captures directly to cloud storage
+- `ScrapeText(ctx, url)` and `ScrapeHTML(ctx, url)` convenience wrappers
+- `ExtractMarkdown(ctx, url)` and `ExtractText(ctx, url)` convenience wrappers
+- `client.Storage` namespace -- `List`, `Get`, `Delete` for stored captures
+- `client.Scheduled` namespace -- `Create`, `List`, `Get`, `Delete`, `Pause`, `Resume` for recurring captures
+- `client.Webhooks` namespace -- `Create`, `List`, `Get`, `Delete` for webhook endpoints
+- `client.APIKeys` namespace -- `Create`, `List`, `Revoke` for API key management
+- `ErrNotFound` error code constant for HTTP 404 responses
+- `APIError.IsQuotaExceeded()` helper method
+- `ErrQuotaExceeded` now mapped from HTTP 402 in `mapErrorCode`
+- `ErrNotFound` now mapped from HTTP 404 in `mapErrorCode`
+- Additional error string mappings: "Bad Request", "Too Many Requests", "Service Unavailable", "Capture Failed"
+- GitHub Actions CI workflow with matrix tests (Go 1.21/1.22/1.23), race detector, coverage, golangci-lint, and tag-triggered release
+- `TestRetry_RetryAfterOverridesBackoff` -- verifies Retry-After takes precedence over backoff delay
+- `TestClient_NamespacesInitialized` -- verifies namespace fields are non-nil after `New()`
+- `TestErrorCode_QuotaExceeded` and `TestErrorCode_NotFound` test cases
+- Namespace tests for all four new namespaces (Storage, Scheduled, Webhooks, APIKeys)
+
+### Fixed
+- **Retry logic bug**: Retry-After sleep was previously added on top of the exponential backoff sleep instead of replacing it. Now Retry-After takes precedence when present.
+- **Manual `errors.As` reimplementation removed**: Test helper now uses stdlib `errors.As` directly.
+- **Context cancellation test**: No longer leaves a server goroutine blocked after test completion.
+
+### Changed
 - `OGImage(ctx, OGImageParams)` method for Open Graph social image generation
 - `Ping(ctx)` method for API health check (`GET /v1/ping`)
 - `Quota(ctx)` alias for `GetUsage(ctx)`
@@ -13,12 +37,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `PDFParams` now supports `HTML`, `PageSize`, `Landscape`, and individual margin fields
 - `Authorization: Bearer` header sent alongside `X-Api-Key` for maximum compatibility
 - `UsageResult.Limit` field
-- Additional tests: OGImage, Ping, PDF with HTML, Video, Quota alias
-
-### Changed
-- API base URL corrected to `https://snapapi.pics` (was `https://api.snapapi.pics`)
 - User-Agent updated to `snapapi-go/3.1.0`
-- PDF generation now uses `/v1/screenshot` with `format=pdf` (matching actual API)
+- PDF generation uses `/v1/screenshot` with `format=pdf` (matching actual API)
 
 ## [2.1.0] - 2026-03-16
 
