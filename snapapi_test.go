@@ -1234,6 +1234,131 @@ func TestClient_NamespacesInitialized(t *testing.T) {
 	}
 }
 
+// --- New fields: DarkMode, BlockCookies, ScrollVideo ---
+
+func TestScreenshot_DarkModeAndBlockCookies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["dark_mode"] != true {
+			t.Errorf("expected dark_mode=true, got %v", body["dark_mode"])
+		}
+		if body["block_cookies"] != true {
+			t.Errorf("expected block_cookies=true, got %v", body["block_cookies"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{
+		URL:          "https://example.com",
+		DarkMode:     true,
+		BlockCookies: true,
+	})
+	if err != nil {
+		t.Fatalf("Screenshot() error: %v", err)
+	}
+}
+
+func TestVideo_ScrollVideo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["scrollVideo"] != true {
+			t.Errorf("expected scrollVideo=true, got %v", body["scrollVideo"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("fake-scroll-video"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.Video(context.Background(), snapapi.VideoParams{
+		URL:         "https://example.com",
+		ScrollVideo: true,
+	})
+	if err != nil {
+		t.Fatalf("Video() error: %v", err)
+	}
+	if string(got) != "fake-scroll-video" {
+		t.Errorf("unexpected body: %q", got)
+	}
+}
+
+func TestScrape_SelectorsAndWaitFor(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		selectors, ok := body["selectors"].(map[string]interface{})
+		if !ok {
+			t.Errorf("expected selectors map, got %T", body["selectors"])
+		}
+		if selectors["title"] != "h1" {
+			t.Errorf("expected selectors.title=h1, got %v", selectors["title"])
+		}
+		if body["waitFor"] != ".loaded" {
+			t.Errorf("expected waitFor=.loaded, got %v", body["waitFor"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": "test", "url": "https://example.com", "status": 200,
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Scrape(context.Background(), snapapi.ScrapeParams{
+		URL:       "https://example.com",
+		Selectors: map[string]string{"title": "h1"},
+		WaitFor:   ".loaded",
+	})
+	if err != nil {
+		t.Fatalf("Scrape() error: %v", err)
+	}
+}
+
+// --- Method aliases ---
+
+func TestGeneratePDF_IsAlias(t *testing.T) {
+	pdfHeader := []byte("%PDF-1.4 alias")
+	srv := httptest.NewServer(binaryHandler(200, pdfHeader))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.GeneratePDF(context.Background(), snapapi.PDFParams{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("GeneratePDF() error: %v", err)
+	}
+	if !strings.HasPrefix(string(got), "%PDF") {
+		t.Errorf("expected PDF header, got: %q", got)
+	}
+}
+
+func TestGenerateOGImage_IsAlias(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["width"] != float64(1200) {
+			t.Errorf("expected width=1200, got %v", body["width"])
+		}
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("og-image"))
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	got, err := client.GenerateOGImage(context.Background(), snapapi.OGImageParams{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("GenerateOGImage() error: %v", err)
+	}
+	if string(got) != "og-image" {
+		t.Errorf("unexpected body: %q", got)
+	}
+}
+
 // --- Error helpers ---
 
 // isAPIError uses errors.As to check whether err is (or wraps) *snapapi.APIError.

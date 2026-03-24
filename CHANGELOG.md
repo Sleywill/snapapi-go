@@ -3,6 +3,20 @@
 All notable changes to the SnapAPI Go SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.2.0] - 2026-03-23
+
+### Added
+- `DarkMode` and `BlockCookies` fields on `ScreenshotParams` to match API spec
+- `ScrollVideo` field on `VideoParams` for scroll-based video recording
+- `Selectors` (map) and `WaitFor` fields on `ScrapeParams` for multi-element scraping
+- `GeneratePDF(ctx, PDFParams)` alias for `PDF()`
+- `GenerateOGImage(ctx, OGImageParams)` alias for `OGImage()`
+- Tests for all new fields and method aliases
+
+### Changed
+- Codebase split into multi-file structure: `screenshot.go`, `scrape.go`, `extract.go`, `pdf.go`, `video.go`, `options.go`, `retry.go`, `errors.go` for better maintainability
+- User-Agent updated to `snapapi-go/3.2.0`
+
 ## [3.1.0] - 2026-03-17
 
 ### Added

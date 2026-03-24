@@ -98,6 +98,8 @@ img, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
     Quality:         85,          // JPEG/WebP quality (1-100)
     Scale:           2.0,         // device scale factor (retina)
     BlockAds:        true,        // enable ad blocking
+    BlockCookies:    true,        // block cookie consent banners
+    DarkMode:        true,        // enable prefers-color-scheme: dark
     WaitForSelector: ".loaded",   // wait for CSS selector to appear
     Selector:        "#hero",     // capture only this element
     ScrollY:         500,         // scroll down before capturing
@@ -132,7 +134,9 @@ Fetch HTML, text, or structured data from a URL:
 result, err := client.Scrape(ctx, snapapi.ScrapeParams{
     URL:             "https://example.com",
     Selector:        "article",        // scope to CSS selector
+    Selectors:       map[string]string{"title": "h1", "body": "article"}, // named multi-element
     Format:          "html",           // "html", "text", or "json"
+    WaitFor:         ".content-ready", // wait for selector/timeout before scraping
     WaitForSelector: ".content-ready", // wait for dynamic content
     Headers:         map[string]string{"Accept-Language": "en-US"},
     Proxy:           "http://proxy:8080",
@@ -219,11 +223,12 @@ Record a short browser session video:
 
 ```go
 videoBytes, err := client.Video(ctx, snapapi.VideoParams{
-    URL:      "https://example.com",
-    Duration: 5,       // seconds
-    Format:   "mp4",   // "webm", "mp4", or "gif"
-    Width:    1280,
-    Height:   720,
+    URL:         "https://example.com",
+    Duration:    5,       // seconds
+    Format:      "mp4",   // "webm", "mp4", or "gif"
+    Width:       1280,
+    Height:      720,
+    ScrollVideo: true,    // scroll-based recording
 })
 os.WriteFile("capture.mp4", videoBytes, 0644)
 ```
