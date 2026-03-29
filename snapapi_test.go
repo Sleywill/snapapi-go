@@ -1359,6 +1359,96 @@ func TestGenerateOGImage_IsAlias(t *testing.T) {
 	}
 }
 
+// --- errors.Is() sentinel tests ---
+
+func TestErrorsIs_RateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "10")
+		w.WriteHeader(429)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"statusCode": 429, "error": "Rate Limited", "message": "Too many requests",
+		})
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if !errors.Is(err, snapapi.ErrRateLimit) {
+		t.Errorf("expected errors.Is(err, ErrRateLimit) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_Auth(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(401, map[string]interface{}{
+		"statusCode": 401, "error": "Unauthorized", "message": "Invalid key",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if !errors.Is(err, snapapi.ErrAuth) {
+		t.Errorf("expected errors.Is(err, ErrAuth) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_Quota(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(402, map[string]interface{}{
+		"statusCode": 402, "error": "Payment Required", "message": "Quota exceeded",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if !errors.Is(err, snapapi.ErrQuota) {
+		t.Errorf("expected errors.Is(err, ErrQuota) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_Validation(t *testing.T) {
+	client := snapapi.New("test-key", snapapi.WithRetries(0))
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{})
+	if !errors.Is(err, snapapi.ErrValidation) {
+		t.Errorf("expected errors.Is(err, ErrValidation) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_Server(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(500, map[string]interface{}{
+		"statusCode": 500, "error": "Internal Server Error", "message": "boom",
+	}))
+	defer srv.Close()
+
+	client := newTestClient(t, srv)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if !errors.Is(err, snapapi.ErrServer) {
+		t.Errorf("expected errors.Is(err, ErrServer) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_Network(t *testing.T) {
+	// Point at a non-existent server to trigger a network error.
+	client := snapapi.New("test-key",
+		snapapi.WithBaseURL("http://127.0.0.1:1"),
+		snapapi.WithRetries(0),
+		snapapi.WithTimeout(1*time.Second),
+	)
+	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{URL: "https://example.com"})
+	if !errors.Is(err, snapapi.ErrNetwork) {
+		t.Errorf("expected errors.Is(err, ErrNetwork) = true, got false; err = %v", err)
+	}
+}
+
+func TestErrorsIs_NegativeCases(t *testing.T) {
+	// A rate-limit error should NOT match ErrAuth or ErrQuota.
+	apiErr := &snapapi.APIError{Code: snapapi.ErrRateLimited, StatusCode: 429, Message: "rate limited"}
+	if errors.Is(apiErr, snapapi.ErrAuth) {
+		t.Error("rate-limit error should not match ErrAuth")
+	}
+	if errors.Is(apiErr, snapapi.ErrQuota) {
+		t.Error("rate-limit error should not match ErrQuota")
+	}
+}
+
 // --- Error helpers ---
 
 // isAPIError uses errors.As to check whether err is (or wraps) *snapapi.APIError.

@@ -6,6 +6,7 @@ Official Go SDK for [SnapAPI.pics](https://snapapi.pics) — capture screenshots
 [![Go Report Card](https://goreportcard.com/badge/github.com/Sleywill/snapapi-go)](https://goreportcard.com/report/github.com/Sleywill/snapapi-go)
 [![CI](https://github.com/Sleywill/snapapi-go/actions/workflows/ci.yml/badge.svg)](https://github.com/Sleywill/snapapi-go/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go 1.21+](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 
 ## Features
 
@@ -363,7 +364,43 @@ err = client.APIKeys.Revoke(ctx, key.ID)
 
 ## Error Handling
 
-Every method returns `(result, error)` and never panics. API errors are typed as `*APIError`:
+Every method returns `(result, error)` and never panics. API errors are typed as `*APIError`.
+
+### Using errors.Is() with sentinel errors
+
+The SDK provides sentinel errors for concise error matching:
+
+```go
+import "errors"
+
+img, err := client.Screenshot(ctx, params)
+if errors.Is(err, snapapi.ErrRateLimit) {
+    log.Println("Rate limited, backing off...")
+} else if errors.Is(err, snapapi.ErrAuth) {
+    log.Fatal("Invalid API key")
+} else if errors.Is(err, snapapi.ErrQuota) {
+    log.Fatal("Monthly quota exhausted")
+} else if errors.Is(err, snapapi.ErrServer) {
+    log.Println("Server error, will retry")
+} else if errors.Is(err, snapapi.ErrNetwork) {
+    log.Println("Network failure")
+} else if errors.Is(err, snapapi.ErrValidation) {
+    log.Println("Bad request parameters")
+}
+```
+
+| Sentinel | Matches |
+|---|---|
+| `ErrRateLimit` | HTTP 429 |
+| `ErrAuth` | HTTP 401, 403 |
+| `ErrQuota` | HTTP 402 |
+| `ErrValidation` | HTTP 400 |
+| `ErrServer` | HTTP 5xx |
+| `ErrNetwork` | Connection failures |
+
+### Using errors.As() for full detail
+
+For access to the full error payload, use `errors.As`:
 
 ```go
 import "errors"
@@ -567,6 +604,20 @@ go run ./examples/advanced/
 ```bash
 go test -race -v ./...
 ```
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before submitting a PR.
+
+```bash
+git clone https://github.com/Sleywill/snapapi-go.git
+cd snapapi-go
+go mod download
+go test -race ./...
+```
+
+Found a bug? [Open an issue](https://github.com/Sleywill/snapapi-go/issues/new?template=bug_report.md).
+Have an idea? [Request a feature](https://github.com/Sleywill/snapapi-go/issues/new?template=feature_request.md).
 
 ## Links
 

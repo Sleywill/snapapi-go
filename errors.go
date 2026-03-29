@@ -8,6 +8,27 @@ import (
 	"strconv"
 )
 
+// Sentinel errors for use with errors.Is(). These allow callers to match
+// error categories without inspecting the full *APIError:
+//
+//	if errors.Is(err, snapapi.ErrRateLimit) {
+//	    // back off and retry
+//	}
+var (
+	// ErrRateLimit is the sentinel for HTTP 429 rate-limit responses.
+	ErrRateLimit = errors.New("snapapi: rate limited")
+	// ErrAuth is the sentinel for HTTP 401/403 authentication failures.
+	ErrAuth = errors.New("snapapi: authentication failed")
+	// ErrQuota is the sentinel for HTTP 402 quota-exceeded responses.
+	ErrQuota = errors.New("snapapi: quota exceeded")
+	// ErrValidation is the sentinel for HTTP 400 bad-request responses.
+	ErrValidation = errors.New("snapapi: validation error")
+	// ErrServer is the sentinel for HTTP 5xx server errors.
+	ErrServer = errors.New("snapapi: server error")
+	// ErrNetwork is the sentinel for network-level connection failures.
+	ErrNetwork = errors.New("snapapi: network error")
+)
+
 // Error code constants returned in APIError.Code.
 const (
 	ErrInvalidParams   = "INVALID_PARAMS"
@@ -59,6 +80,34 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("[%s] %s (HTTP %d)", e.Code, e.Message, e.StatusCode)
 	}
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
+}
+
+// Is implements errors.Is() support so callers can match sentinel errors:
+//
+//	errors.Is(err, snapapi.ErrRateLimit) // true for 429 errors
+//	errors.Is(err, snapapi.ErrAuth)      // true for 401/403 errors
+func (e *APIError) Is(target error) bool {
+	switch target {
+	case ErrRateLimit:
+		return e.Code == ErrRateLimited
+	case ErrAuth:
+		return e.Code == ErrUnauthorized || e.Code == ErrForbidden
+	case ErrQuota:
+		return e.Code == ErrQuotaExceeded
+	case ErrValidation:
+		return e.Code == ErrInvalidParams
+	case ErrServer:
+		return e.StatusCode >= 500
+	case ErrNetwork:
+		return e.Code == ErrConnectionError
+	}
+	return false
+}
+
+// Unwrap returns nil; APIError is a leaf error. This method exists so that the
+// errors package recognises *APIError as implementing the unwrap interface.
+func (e *APIError) Unwrap() error {
+	return nil
 }
 
 // IsRateLimited reports whether the error is a rate-limit (429) response.

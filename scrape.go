@@ -28,7 +28,22 @@ type ScrapeParams struct {
 	AccessKey string `json:"access_key,omitempty"`
 }
 
+// scrapeResultItem is a single page result within the API's results array.
+type scrapeResultItem struct {
+	Page int    `json:"page"`
+	URL  string `json:"url"`
+	Data string `json:"data"`
+}
+
+// scrapeAPIResponse is the raw shape the SnapAPI server returns for /v1/scrape.
+// The API wraps results in a "results" array (one item per scraped page).
+type scrapeAPIResponse struct {
+	Success bool               `json:"success"`
+	Results []scrapeResultItem `json:"results"`
+}
+
 // ScrapeResult is the structured response from the scrape endpoint.
+// It presents the first (and most commonly the only) page result as a flat struct.
 type ScrapeResult struct {
 	// Data contains the scraped content (HTML, text, or JSON string).
 	Data string `json:"data"`
@@ -36,6 +51,8 @@ type ScrapeResult struct {
 	URL string `json:"url"`
 	// Status is the HTTP status code of the scraped page.
 	Status int `json:"status"`
+	// AllResults holds all page results when multi-page scraping was requested.
+	AllResults []scrapeResultItem `json:"-"`
 }
 
 // Scrape fetches text or structured content from a URL.
@@ -46,11 +63,18 @@ func (c *Client) Scrape(ctx context.Context, p ScrapeParams) (*ScrapeResult, err
 	if p.URL == "" {
 		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-	var result ScrapeResult
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/scrape", p, &result); err != nil {
+	// The API wraps results in {"success":true,"results":[{"page":N,"url":"...","data":"..."}]}.
+	// We unwrap to a flat ScrapeResult for backward compatibility.
+	var raw scrapeAPIResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/scrape", p, &raw); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	result := &ScrapeResult{AllResults: raw.Results}
+	if len(raw.Results) > 0 {
+		result.Data = raw.Results[0].Data
+		result.URL = raw.Results[0].URL
+	}
+	return result, nil
 }
 
 // ScrapeText is a convenience wrapper that scrapes the page and returns only

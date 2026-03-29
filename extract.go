@@ -27,14 +27,29 @@ type ExtractParams struct {
 	AccessKey string `json:"access_key,omitempty"`
 }
 
+// extractAPIResponse is the raw shape the SnapAPI server returns for /v1/extract.
+// The API returns {"success":true,"type":"markdown","url":"...","data":"...","responseTime":N}.
+type extractAPIResponse struct {
+	Success      bool   `json:"success"`
+	Type         string `json:"type"`
+	URL          string `json:"url"`
+	Data         string `json:"data"`
+	ResponseTime int    `json:"responseTime"`
+}
+
 // ExtractResult is the structured response from the extract endpoint.
 type ExtractResult struct {
 	// Content is the extracted text (markdown, plain text, or JSON).
+	// Populated from the API's "data" field.
 	Content string `json:"content"`
 	// URL is the final URL after any redirects.
 	URL string `json:"url"`
 	// WordCount is the approximate number of words in the extracted content.
 	WordCount int `json:"word_count"`
+	// ResponseTime is the server-side render duration in milliseconds.
+	ResponseTime int `json:"responseTime"`
+	// Type is the output format that was actually returned (e.g. "markdown").
+	Type string `json:"type"`
 }
 
 // Extract extracts readable content from a URL, suitable for LLM consumption.
@@ -48,11 +63,18 @@ func (c *Client) Extract(ctx context.Context, p ExtractParams) (*ExtractResult, 
 	if p.URL == "" {
 		return nil, &APIError{Code: ErrInvalidParams, Message: "URL is required", StatusCode: 400}
 	}
-	var result ExtractResult
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/extract", p, &result); err != nil {
+	// The API returns {"success":true,"type":"markdown","url":"...","data":"..."}.
+	// We map the "data" field to Content for a consistent SDK interface.
+	var raw extractAPIResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/extract", p, &raw); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &ExtractResult{
+		Content:      raw.Data,
+		URL:          raw.URL,
+		ResponseTime: raw.ResponseTime,
+		Type:         raw.Type,
+	}, nil
 }
 
 // ExtractMarkdown is a convenience wrapper that extracts page content as

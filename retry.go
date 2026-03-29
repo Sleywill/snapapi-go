@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -33,10 +34,14 @@ func (c *Client) doRaw(ctx context.Context, method, path string, body interface{
 		}
 
 		// Compute the sleep duration: honour Retry-After if present, otherwise
-		// use exponential back-off.
+		// use exponential back-off with jitter to avoid thundering herd.
 		waitDur := delay
 		if apiErr != nil && apiErr.RetryAfter > 0 {
 			waitDur = time.Duration(apiErr.RetryAfter) * time.Second
+		} else {
+			// Add up to 25% jitter to avoid synchronized retries.
+			jitter := time.Duration(rand.Int63n(int64(delay / 4)))
+			waitDur = delay + jitter
 		}
 		delay *= 2
 
