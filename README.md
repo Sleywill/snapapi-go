@@ -92,24 +92,34 @@ Capture a screenshot of any URL. Returns raw image bytes.
 img, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
     URL:             "https://example.com",
     Format:          "png",       // "png", "jpeg", "webp", or "pdf"
-    Width:           1280,        // viewport width in pixels
-    Height:          720,         // viewport height in pixels
-    FullPage:        true,        // capture entire scrollable page
-    Delay:           500,         // ms to wait after page load
-    Quality:         85,          // JPEG/WebP quality (1-100)
-    Scale:           2.0,         // device scale factor (retina)
-    BlockAds:        true,        // enable ad blocking
-    BlockCookies:    true,        // block cookie consent banners
-    DarkMode:        true,        // enable prefers-color-scheme: dark
-    WaitForSelector: ".loaded",   // wait for CSS selector to appear
-    Selector:        "#hero",     // capture only this element
-    ScrollY:         500,         // scroll down before capturing
-    CustomCSS:       "body { background: white; }",
-    CustomJS:        "document.querySelector('.popup')?.remove();",
-    UserAgent:       "MyBot/1.0",
-    Proxy:           "http://proxy:8080",
-    Headers:         map[string]string{"Cookie": "session=abc"},
-    Clip:            &snapapi.ClipRegion{X: 0, Y: 0, Width: 800, Height: 600},
+    Width:              1280,        // viewport width in pixels
+    Height:             720,         // viewport height in pixels
+    FullPage:           true,        // capture entire scrollable page
+    Delay:              500,         // ms to wait after page load
+    Quality:            85,          // JPEG/WebP quality (1-100)
+    DeviceScaleFactor:  2.0,         // device scale factor (retina)
+    BlockAds:           true,        // enable ad blocking
+    BlockCookieBanners: true,        // block cookie consent banners
+    DarkMode:           true,        // enable prefers-color-scheme: dark
+    WaitForSelector:    ".loaded",   // wait for CSS selector to appear
+    Selector:           "#hero",     // capture only this element
+    ScrollY:            500,         // scroll down before capturing
+    CSS:                "body { background: white; }",
+    JavaScript:         "document.querySelector('.popup')?.remove();",
+    UserAgent:          "MyBot/1.0",
+    Proxy: &snapapi.ScreenshotProxy{
+        Server:   "http://proxy:8080",
+        Username: "user",
+        Password: "pass",
+    },
+    Geolocation: &snapapi.ScreenshotGeolocation{
+        Latitude:  51.5074,
+        Longitude: -0.1278,
+    },
+    Timezone: "Europe/London",
+    Cache:    true,
+    Headers:  map[string]string{"Cookie": "session=abc"},
+    Clip:     &snapapi.ClipRegion{X: 0, Y: 0, Width: 800, Height: 600},
 })
 os.WriteFile("screenshot.png", img, 0644)
 ```

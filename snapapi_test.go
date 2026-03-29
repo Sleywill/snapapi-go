@@ -89,14 +89,14 @@ func TestScreenshot_FullParams(t *testing.T) {
 		if body["url"] != "https://example.com" {
 			t.Errorf("unexpected url: %v", body["url"])
 		}
-		if body["full_page"] != true {
-			t.Errorf("expected full_page=true")
+		if body["fullPage"] != true {
+			t.Errorf("expected fullPage=true")
 		}
-		if body["block_ads"] != true {
-			t.Errorf("expected block_ads=true")
+		if body["blockAds"] != true {
+			t.Errorf("expected blockAds=true")
 		}
-		if body["custom_css"] != "body { background: red; }" {
-			t.Errorf("unexpected custom_css: %v", body["custom_css"])
+		if body["css"] != "body { background: red; }" {
+			t.Errorf("unexpected css: %v", body["css"])
 		}
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("ok"))
@@ -111,8 +111,8 @@ func TestScreenshot_FullParams(t *testing.T) {
 		Width:     1920,
 		Height:    1080,
 		BlockAds:  true,
-		CustomCSS: "body { background: red; }",
-		Scale:     2.0,
+		CSS:       "body { background: red; }",
+		DeviceScaleFactor: 2.0,
 		Headers:   map[string]string{"X-Custom": "value"},
 	})
 	if err != nil {
@@ -235,9 +235,10 @@ func TestScreenshotToFile_Success(t *testing.T) {
 
 func TestScrape_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"data":   "<html>Hello</html>",
-		"url":    "https://example.com",
-		"status": 200,
+		"success": true,
+		"results": []map[string]interface{}{
+			{"page": 1, "url": "https://example.com", "data": "<html>Hello</html>"},
+		},
 	}))
 	defer srv.Close()
 
@@ -249,8 +250,8 @@ func TestScrape_Success(t *testing.T) {
 	if result.Data != "<html>Hello</html>" {
 		t.Errorf("unexpected data: %q", result.Data)
 	}
-	if result.Status != 200 {
-		t.Errorf("expected status=200, got %d", result.Status)
+	if result.URL != "https://example.com" {
+		t.Errorf("expected url=https://example.com, got %q", result.URL)
 	}
 }
 
@@ -266,9 +267,10 @@ func TestScrape_MissingURL(t *testing.T) {
 
 func TestExtract_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"content":    "# Hello\n\nWorld.",
-		"url":        "https://example.com",
-		"word_count": 2,
+		"success": true,
+		"data":    "# Hello\n\nWorld.",
+		"url":     "https://example.com",
+		"type":    "markdown",
 	}))
 	defer srv.Close()
 
@@ -283,8 +285,9 @@ func TestExtract_Success(t *testing.T) {
 	if result.Content == "" {
 		t.Error("expected non-empty Content")
 	}
-	if result.WordCount != 2 {
-		t.Errorf("expected word_count=2, got %d", result.WordCount)
+	// WordCount is not returned by the server; just verify Content is set
+	if result.URL != "https://example.com" {
+		t.Errorf("expected url=https://example.com, got %q", result.URL)
 	}
 }
 
@@ -662,9 +665,10 @@ func TestVideo_MissingURL(t *testing.T) {
 
 func TestScrapeText_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"data":   "Hello world",
-		"url":    "https://example.com",
-		"status": 200,
+		"success": true,
+		"results": []map[string]interface{}{
+			{"page": 1, "url": "https://example.com", "data": "Hello world"},
+		},
 	}))
 	defer srv.Close()
 
@@ -680,9 +684,10 @@ func TestScrapeText_Success(t *testing.T) {
 
 func TestScrapeHTML_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"data":   "<html><body>Hello</body></html>",
-		"url":    "https://example.com",
-		"status": 200,
+		"success": true,
+		"results": []map[string]interface{}{
+			{"page": 1, "url": "https://example.com", "data": "<html><body>Hello</body></html>"},
+		},
 	}))
 	defer srv.Close()
 
@@ -700,9 +705,10 @@ func TestScrapeHTML_Success(t *testing.T) {
 
 func TestExtractMarkdown_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"content":    "# Title\n\nBody.",
-		"url":        "https://example.com",
-		"word_count": 2,
+		"success": true,
+		"data":    "# Title\n\nBody.",
+		"url":     "https://example.com",
+		"type":    "markdown",
 	}))
 	defer srv.Close()
 
@@ -718,9 +724,10 @@ func TestExtractMarkdown_Success(t *testing.T) {
 
 func TestExtractText_Success(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(200, map[string]interface{}{
-		"content":    "Title Body.",
-		"url":        "https://example.com",
-		"word_count": 2,
+		"success": true,
+		"data":    "Title Body.",
+		"url":     "https://example.com",
+		"type":    "text",
 	}))
 	defer srv.Close()
 
@@ -1240,11 +1247,11 @@ func TestScreenshot_DarkModeAndBlockCookies(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["dark_mode"] != true {
-			t.Errorf("expected dark_mode=true, got %v", body["dark_mode"])
+		if body["darkMode"] != true {
+			t.Errorf("expected darkMode=true, got %v", body["darkMode"])
 		}
-		if body["block_cookies"] != true {
-			t.Errorf("expected block_cookies=true, got %v", body["block_cookies"])
+		if body["blockCookieBanners"] != true {
+			t.Errorf("expected blockCookieBanners=true, got %v", body["blockCookieBanners"])
 		}
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("ok"))
@@ -1253,9 +1260,9 @@ func TestScreenshot_DarkModeAndBlockCookies(t *testing.T) {
 
 	client := newTestClient(t, srv)
 	_, err := client.Screenshot(context.Background(), snapapi.ScreenshotParams{
-		URL:          "https://example.com",
-		DarkMode:     true,
-		BlockCookies: true,
+		URL:                "https://example.com",
+		DarkMode:           true,
+		BlockCookieBanners: true,
 	})
 	if err != nil {
 		t.Fatalf("Screenshot() error: %v", err)
@@ -1266,8 +1273,8 @@ func TestVideo_ScrollVideo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body["scrollVideo"] != true {
-			t.Errorf("expected scrollVideo=true, got %v", body["scrollVideo"])
+		if body["scrolling"] != true {
+			t.Errorf("expected scrolling=true, got %v", body["scrolling"])
 		}
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("fake-scroll-video"))
@@ -1276,8 +1283,8 @@ func TestVideo_ScrollVideo(t *testing.T) {
 
 	client := newTestClient(t, srv)
 	got, err := client.Video(context.Background(), snapapi.VideoParams{
-		URL:         "https://example.com",
-		ScrollVideo: true,
+		URL:       "https://example.com",
+		Scrolling: true,
 	})
 	if err != nil {
 		t.Fatalf("Video() error: %v", err)

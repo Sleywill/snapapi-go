@@ -7,48 +7,138 @@ import (
 	"os"
 )
 
+// ScreenshotGeolocation holds GPS coordinates for browser geolocation emulation.
+type ScreenshotGeolocation struct {
+	// Latitude in decimal degrees (-90 to 90).
+	Latitude float64 `json:"latitude"`
+	// Longitude in decimal degrees (-180 to 180).
+	Longitude float64 `json:"longitude"`
+	// Accuracy in metres (optional, default: 1).
+	Accuracy float64 `json:"accuracy,omitempty"`
+}
+
+// ScreenshotProxy holds proxy server configuration.
+type ScreenshotProxy struct {
+	// Server is the proxy URL, e.g. "http://host:port".
+	Server string `json:"server"`
+	// Username for proxy authentication (optional).
+	Username string `json:"username,omitempty"`
+	// Password for proxy authentication (optional).
+	Password string `json:"password,omitempty"`
+	// Bypass is a list of domains that bypass the proxy (optional).
+	Bypass []string `json:"bypass,omitempty"`
+}
+
+// ScreenshotCookie defines a browser cookie to inject into the page session.
+type ScreenshotCookie struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Domain   string `json:"domain,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Expires  int64  `json:"expires,omitempty"`
+	HTTPOnly bool   `json:"httpOnly,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	SameSite string `json:"sameSite,omitempty"` // "Strict" | "Lax" | "None"
+}
+
+// ScreenshotHTTPAuth holds HTTP Basic Authentication credentials.
+type ScreenshotHTTPAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 // ScreenshotParams holds all parameters for the Screenshot endpoint.
 type ScreenshotParams struct {
-	// URL of the page to capture. Required.
-	URL string `json:"url"`
-	// Format is the output image format: "png" (default), "jpeg", "webp", or "pdf".
+	// URL of the page to capture. Required (unless HTML or Markdown is set).
+	URL string `json:"url,omitempty"`
+	// HTML is raw HTML to render instead of a URL.
+	HTML string `json:"html,omitempty"`
+	// Markdown is rendered to HTML before capturing.
+	Markdown string `json:"markdown,omitempty"`
+	// Format is the output image format: "png" (default), "jpeg", "webp", "avif", or "pdf".
 	Format string `json:"format,omitempty"`
 	// Width of the viewport in pixels. Default: 1280.
 	Width int `json:"width,omitempty"`
-	// Height of the viewport in pixels.
+	// Height of the viewport in pixels. Default: 800.
 	Height int `json:"height,omitempty"`
+	// DeviceScaleFactor is the device pixel ratio (1–3). Default: 1.
+	DeviceScaleFactor float64 `json:"deviceScaleFactor,omitempty"`
+	// Device is a named device viewport preset (overrides Width/Height/DeviceScaleFactor).
+	Device string `json:"device,omitempty"`
+	// IsMobile emulates a mobile device.
+	IsMobile bool `json:"isMobile,omitempty"`
+	// HasTouch enables touch events.
+	HasTouch bool `json:"hasTouch,omitempty"`
+	// IsLandscape emulates landscape orientation.
+	IsLandscape bool `json:"isLandscape,omitempty"`
 	// FullPage captures the entire scrollable page. Default: false.
-	FullPage bool `json:"full_page,omitempty"`
+	FullPage bool `json:"fullPage,omitempty"`
+	// FullPageScrollDelay is the delay between scroll steps in ms. Default: 400.
+	FullPageScrollDelay int `json:"fullPageScrollDelay,omitempty"`
+	// FullPageMaxHeight is the maximum height for full-page capture in px.
+	FullPageMaxHeight int `json:"fullPageMaxHeight,omitempty"`
+	// ScrollToBottom scrolls to the bottom of the page before capturing.
+	ScrollToBottom bool `json:"scrollToBottom,omitempty"`
 	// DarkMode enables dark mode (prefers-color-scheme: dark). Default: false.
-	DarkMode bool `json:"dark_mode,omitempty"`
-	// Delay is the time in milliseconds to wait after page load.
+	DarkMode bool `json:"darkMode,omitempty"`
+	// ReducedMotion reduces CSS animations.
+	ReducedMotion bool `json:"reducedMotion,omitempty"`
+	// Delay is the time in milliseconds to wait after page load (0–30000).
 	Delay int `json:"delay,omitempty"`
-	// Quality sets JPEG/WebP compression quality (1-100). Default: 85.
+	// Quality sets JPEG/WebP compression quality (1–100).
 	Quality int `json:"quality,omitempty"`
-	// Scale is the device scale factor. Default: 1.
-	Scale float64 `json:"scale,omitempty"`
 	// BlockAds enables ad blocking. Default: false.
-	BlockAds bool `json:"block_ads,omitempty"`
-	// BlockCookies blocks cookie consent banners. Default: false.
-	BlockCookies bool `json:"block_cookies,omitempty"`
+	BlockAds bool `json:"blockAds,omitempty"`
+	// BlockTrackers blocks tracking scripts.
+	BlockTrackers bool `json:"blockTrackers,omitempty"`
+	// BlockCookieBanners blocks cookie consent banners. Default: false.
+	BlockCookieBanners bool `json:"blockCookieBanners,omitempty"`
+	// BlockChatWidgets blocks chat/support widgets.
+	BlockChatWidgets bool `json:"blockChatWidgets,omitempty"`
+	// WaitUntil is the navigation event to wait for: "load", "domcontentloaded", "networkidle".
+	WaitUntil string `json:"waitUntil,omitempty"`
 	// WaitForSelector waits for this CSS selector to appear before capturing.
-	WaitForSelector string `json:"wait_for_selector,omitempty"`
+	WaitForSelector string `json:"waitForSelector,omitempty"`
 	// Selector captures only the element matching this CSS selector.
 	Selector string `json:"selector,omitempty"`
 	// Clip captures only the specified rectangular region.
 	Clip *ClipRegion `json:"clip,omitempty"`
 	// ScrollY scrolls the page by this many pixels before capturing.
 	ScrollY int `json:"scroll_y,omitempty"`
-	// CustomCSS is injected into the page before capturing.
-	CustomCSS string `json:"custom_css,omitempty"`
-	// CustomJS is executed on the page before capturing.
-	CustomJS string `json:"custom_js,omitempty"`
+	// CSS is injected into the page before capturing.
+	CSS string `json:"css,omitempty"`
+	// JavaScript is executed on the page before capturing.
+	JavaScript string `json:"javascript,omitempty"`
+	// HideSelectors is a list of CSS selectors to hide before capturing.
+	HideSelectors []string `json:"hideSelectors,omitempty"`
+	// ClickSelector clicks this CSS selector before capturing.
+	ClickSelector string `json:"clickSelector,omitempty"`
 	// Headers are additional HTTP headers sent when loading the page.
-	Headers map[string]string `json:"headers,omitempty"`
+	Headers map[string]string `json:"extraHeaders,omitempty"`
 	// UserAgent overrides the browser's User-Agent string.
-	UserAgent string `json:"user_agent,omitempty"`
-	// Proxy routes the browser request through this proxy URL.
-	Proxy string `json:"proxy,omitempty"`
+	UserAgent string `json:"userAgent,omitempty"`
+	// Cookies are injected into the browser session before loading the page.
+	Cookies []ScreenshotCookie `json:"cookies,omitempty"`
+	// HTTPAuth provides HTTP Basic Authentication credentials.
+	HTTPAuth *ScreenshotHTTPAuth `json:"httpAuth,omitempty"`
+	// Proxy routes the browser request through a custom proxy server.
+	Proxy *ScreenshotProxy `json:"proxy,omitempty"`
+	// PremiumProxy uses SnapAPI's managed residential proxy network.
+	PremiumProxy bool `json:"premiumProxy,omitempty"`
+	// Geolocation emulates GPS coordinates in the browser.
+	Geolocation *ScreenshotGeolocation `json:"geolocation,omitempty"`
+	// Timezone sets the browser timezone (IANA string, e.g. "America/New_York").
+	Timezone string `json:"timezone,omitempty"`
+	// Locale sets the browser locale (e.g. "en-US").
+	Locale string `json:"locale,omitempty"`
+	// Cache enables response caching. Default: false.
+	Cache bool `json:"cache,omitempty"`
+	// CacheTTL is the cache time-to-live in seconds (60–2592000). Default: 86400.
+	CacheTTL int `json:"cacheTtl,omitempty"`
+	// WebhookURL delivers the result asynchronously to this URL.
+	WebhookURL string `json:"webhookUrl,omitempty"`
+	// Async queues the capture and returns a job ID immediately.
+	Async bool `json:"async,omitempty"`
 	// AccessKey is an alternative authentication method via query parameter.
 	AccessKey string `json:"access_key,omitempty"`
 }

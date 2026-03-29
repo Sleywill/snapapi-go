@@ -282,9 +282,9 @@ func TestLive_Screenshot_Scale(t *testing.T) {
 	ctx := context.Background()
 
 	data, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
-		URL:    "https://example.com",
-		Format: "png",
-		Scale:  2.0,
+		URL:               "https://example.com",
+		Format:            "png",
+		DeviceScaleFactor: 2.0,
 	})
 	if err != nil {
 		t.Fatalf("Screenshot(scale=2) error: %v", err)
@@ -300,10 +300,10 @@ func TestLive_Screenshot_BlockAds(t *testing.T) {
 	ctx := context.Background()
 
 	data, err := client.Screenshot(ctx, snapapi.ScreenshotParams{
-		URL:          "https://example.com",
-		Format:       "png",
-		BlockAds:     true,
-		BlockCookies: true,
+		URL:                "https://example.com",
+		Format:             "png",
+		BlockAds:           true,
+		BlockCookieBanners: true,
 	})
 	if err != nil {
 		t.Fatalf("Screenshot(block_ads) error: %v", err)

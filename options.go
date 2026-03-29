@@ -9,7 +9,7 @@ const (
 	defaultBaseURL = "https://api.snapapi.pics"
 	defaultTimeout = 30 * time.Second
 	defaultRetries = 3
-	userAgent      = "snapapi-go/3.2.0"
+	userAgent      = "snapapi-go/3.3.0"
 )
 
 // Option configures a Client. Pass options to New().
